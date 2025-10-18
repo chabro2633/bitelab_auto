@@ -23,9 +23,9 @@ export async function POST(request: NextRequest) {
       }, { status: 500 });
     }
 
-    // GitHub Actions 워크플로우 실행
+    // GitHub Actions 워크플로우 실행 (워크플로우 ID 사용)
     const workflowResponse = await fetch(
-      `https://api.github.com/repos/${repoOwner}/${repoName}/actions/workflows/scrape.yml/dispatches`,
+      `https://api.github.com/repos/${repoOwner}/${repoName}/actions/workflows/198911155/dispatches`,
       {
         method: 'POST',
         headers: {
