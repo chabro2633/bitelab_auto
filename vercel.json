@@ -1,0 +1,28 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "app/package.json",
+      "use": "@vercel/next"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "app/$1"
+    }
+  ],
+  "functions": {
+    "app/src/app/api/execute-script/route.ts": {
+      "maxDuration": 300
+    }
+  },
+  "env": {
+    "NEXTAUTH_URL": "@nextauth_url",
+    "NEXTAUTH_SECRET": "@nextauth_secret",
+    "CIGRO_EMAIL": "@cigro_email",
+    "CIGRO_PASSWORD": "@cigro_password",
+    "GOOGLE_SHEET_NAME": "@google_sheet_name",
+    "GOOGLE_SHEETS_CREDENTIALS": "@google_sheets_credentials"
+  }
+}

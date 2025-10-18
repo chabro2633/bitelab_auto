@@ -1,0 +1,101 @@
+name: Cigro Data Scraping
+
+on:
+  # 매일 오전 9시 (한국시간)에 자동 실행
+  schedule:
+    - cron: '0 0 * * *'  # UTC 기준 자정 (한국시간 오전 9시)
+  
+  # 수동 실행 가능
+  workflow_dispatch:
+    inputs:
+      date:
+        description: '스크래핑할 날짜 (YYYY-MM-DD 형식, 비워두면 어제 날짜)'
+        required: false
+        type: string
+      brands:
+        description: '스크래핑할 브랜드 목록 (공백으로 구분, 비워두면 모든 브랜드)'
+        required: false
+        type: string
+
+jobs:
+  scrape-data:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y wget gnupg
+        
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        
+    - name: Install Playwright browsers
+      run: |
+        playwright install chromium
+        playwright install-deps chromium
+        
+    - name: Create Google Sheets credentials
+      run: |
+        echo '${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}' > google_sheet_credentials.json
+        
+    - name: Run scraping script
+      env:
+        EMAIL: ${{ secrets.CIGRO_EMAIL }}
+        PASSWORD: ${{ secrets.CIGRO_PASSWORD }}
+        GOOGLE_SHEET_NAME: ${{ secrets.GOOGLE_SHEET_NAME }}
+        SCRAPE_DATE: ${{ github.event.inputs.date }}
+        SCRAPE_BRANDS: ${{ github.event.inputs.brands }}
+      run: |
+        python_command="python cigro_yesterday.py"
+        
+        if [ -n "$SCRAPE_DATE" ]; then
+          echo "특정 날짜로 스크래핑: $SCRAPE_DATE"
+          python_command="$python_command --date \"$SCRAPE_DATE\""
+        else
+          echo "어제 날짜로 스크래핑"
+        fi
+        
+        if [ -n "$SCRAPE_BRANDS" ]; then
+          echo "선택된 브랜드: $SCRAPE_BRANDS"
+          python_command="$python_command --brands $SCRAPE_BRANDS"
+        else
+          echo "모든 브랜드 스크래핑"
+        fi
+        
+        echo "실행 명령어: $python_command"
+        eval $python_command
+        
+    - name: Upload logs
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: scraping-logs
+        path: |
+          *.log
+          auth.json
+        retention-days: 7
+        
+    - name: Send notification on success
+      if: success()
+      run: |
+        echo "✅ Cigro 데이터 스크래핑이 성공적으로 완료되었습니다!"
+        echo "📅 실행 시간: $(date)"
+        echo "📊 데이터가 Google Sheets에 업로드되었습니다."
+        
+    - name: Send notification on failure
+      if: failure()
+      run: |
+        echo "❌ Cigro 데이터 스크래핑이 실패했습니다!"
+        echo "📅 실행 시간: $(date)"
+        echo "🔍 로그를 확인하여 문제를 파악하세요."
