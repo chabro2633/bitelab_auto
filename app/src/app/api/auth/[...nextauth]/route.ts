@@ -23,6 +23,7 @@ export const authOptions: NextAuthOptions = {
             username: user.username,
             role: user.role,
             allowedBrands: user.allowedBrands,
+            isFirstLogin: user.isFirstLogin,
           };
         }
         
@@ -36,6 +37,7 @@ export const authOptions: NextAuthOptions = {
         token.username = user.username;
         token.role = user.role;
         token.allowedBrands = user.allowedBrands;
+        token.isFirstLogin = user.isFirstLogin;
       }
       return token;
     },
@@ -45,6 +47,7 @@ export const authOptions: NextAuthOptions = {
         session.user.username = token.username as string;
         session.user.role = token.role as string;
         session.user.allowedBrands = token.allowedBrands as string[];
+        session.user.isFirstLogin = token.isFirstLogin as boolean;
       }
       return session;
     }

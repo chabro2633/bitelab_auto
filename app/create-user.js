@@ -8,18 +8,19 @@ const path = require('path');
 async function createUserAccount() {
   const args = process.argv.slice(2);
   
-  if (args.length < 2) {
-    console.log('사용법: node create-user.js <username> <password> [role] [brands]');
-    console.log('예시: node create-user.js admin mypassword admin');
-    console.log('예시: node create-user.js user1 password123 user "바르너 릴리이브"');
+  if (args.length < 1) {
+    console.log('사용법: node create-user.js <username> [role] [brands]');
+    console.log('예시: node create-user.js admin admin');
+    console.log('예시: node create-user.js user1 user "바르너 릴리이브"');
     console.log('브랜드: 바르너, 릴리이브, 보호리, 먼슬리픽, 색동서울');
+    console.log('기본 비밀번호: bitelab (최초 로그인 시 변경 필요)');
     process.exit(1);
   }
 
   const username = args[0];
-  const password = args[1];
-  const role = args[2] || 'user';
-  const brandsString = args[3] || '';
+  const password = 'bitelab'; // 기본 비밀번호 고정
+  const role = args[1] || 'user';
+  const brandsString = args[2] || '';
   
   // 브랜드 문자열을 배열로 변환
   const allowedBrands = brandsString ? brandsString.split(' ').filter(b => b.trim()) : [];
@@ -35,6 +36,7 @@ async function createUserAccount() {
       password: hashedPassword,
       role: role,
       allowedBrands: role === 'admin' ? [] : allowedBrands, // admin은 빈 배열 (모든 브랜드 접근 가능)
+      isFirstLogin: true, // 모든 새 사용자는 최초 로그인으로 설정
       createdAt: new Date().toISOString()
     };
 
@@ -62,7 +64,7 @@ async function createUserAccount() {
 
     console.log('✅ 사용자 계정이 성공적으로 생성되었습니다!');
     console.log(`👤 사용자명: ${username}`);
-    console.log(`🔑 비밀번호: ${password}`);
+    console.log(`🔑 기본 비밀번호: ${password} (최초 로그인 시 변경 필요)`);
     console.log(`👑 역할: ${role}`);
     if (role === 'admin') {
       console.log(`🏢 브랜드 권한: 모든 브랜드 접근 가능`);
