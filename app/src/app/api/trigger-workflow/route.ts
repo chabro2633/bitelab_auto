@@ -14,14 +14,16 @@ export async function POST(request: NextRequest) {
     
     // GitHub Actions 워크플로우 트리거
     const githubToken = process.env.GITHUB_TOKEN;
-    const repoOwner = process.env.GITHUB_REPO_OWNER || 'your-username';
-    const repoName = process.env.GITHUB_REPO_NAME || 'bitelab_auto';
+    const repoOwner = 'chabro2633';
+    const repoName = 'bitelab_auto';
     
     if (!githubToken) {
       return NextResponse.json({ 
-        error: 'GitHub token not configured' 
+        error: 'GitHub token not configured in environment variables' 
       }, { status: 500 });
     }
+    
+    console.log('Triggering workflow with:', { date, brands, githubToken: githubToken.substring(0, 10) + '...' });
 
     // GitHub Actions 워크플로우 실행 (워크플로우 ID 사용)
     const workflowResponse = await fetch(
@@ -43,8 +45,12 @@ export async function POST(request: NextRequest) {
       }
     );
 
+    console.log('Workflow response status:', workflowResponse.status);
+    console.log('Workflow response headers:', Object.fromEntries(workflowResponse.headers.entries()));
+
     if (!workflowResponse.ok) {
       const errorText = await workflowResponse.text();
+      console.error('Workflow trigger failed:', errorText);
       return NextResponse.json({ 
         error: `GitHub Actions trigger failed: ${errorText}` 
       }, { status: 500 });
