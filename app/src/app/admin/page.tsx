@@ -20,10 +20,11 @@ export default function AdminDashboard() {
   const [result, setResult] = useState<ExecutionResult | null>(null);
   const [scriptArgs, setScriptArgs] = useState('');
   const [selectedDate, setSelectedDate] = useState('');
-  const [selectedBrands, setSelectedBrands] = useState<string[]>(['바르너', '릴리이브', '보호리', '먼슬리픽', '색동서울']);
+  const [selectedBrands, setSelectedBrands] = useState<string[]>([]);
   const [consoleLogs, setConsoleLogs] = useState<string[]>([]);
   const [showConsole, setShowConsole] = useState(false);
   const [abortController, setAbortController] = useState<AbortController | null>(null);
+  const [userAllowedBrands, setUserAllowedBrands] = useState<string[]>([]);
   
   const availableBrands = ['바르너', '릴리이브', '보호리', '먼슬리픽', '색동서울'];
 
@@ -32,6 +33,22 @@ export default function AdminDashboard() {
       router.push('/login');
     }
   }, [status, router]);
+
+  // 사용자 권한에 따라 브랜드 설정
+  useEffect(() => {
+    if (session?.user) {
+      if (session.user.role === 'admin') {
+        // 관리자는 모든 브랜드 접근 가능
+        setUserAllowedBrands(availableBrands);
+        setSelectedBrands(availableBrands);
+      } else {
+        // 일반 사용자는 할당된 브랜드만 접근 가능
+        const allowedBrands = session.user.allowedBrands || [];
+        setUserAllowedBrands(allowedBrands);
+        setSelectedBrands(allowedBrands);
+      }
+    }
+  }, [session]);
 
   // 콘솔 로그가 추가될 때마다 자동 스크롤
   useEffect(() => {
@@ -52,7 +69,7 @@ export default function AdminDashboard() {
   };
 
   const handleSelectAllBrands = () => {
-    setSelectedBrands(availableBrands);
+    setSelectedBrands(userAllowedBrands);
   };
 
   const handleDeselectAllBrands = () => {
@@ -212,6 +229,11 @@ export default function AdminDashboard() {
                 <div className="mb-6">
                   <label className="block text-sm font-medium text-gray-700 mb-3">
                     브랜드 선택 (선택사항)
+                    {session?.user.role !== 'admin' && (
+                      <span className="text-sm text-gray-500 ml-2">
+                        (권한이 있는 브랜드만 표시됩니다)
+                      </span>
+                    )}
                   </label>
                   <div className="flex flex-wrap gap-2 mb-3">
                     <button
@@ -230,7 +252,7 @@ export default function AdminDashboard() {
                     </button>
                   </div>
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                    {availableBrands.map((brand) => (
+                    {userAllowedBrands.map((brand) => (
                       <label key={brand} className="flex items-center space-x-2 cursor-pointer">
                         <input
                           type="checkbox"
@@ -241,9 +263,17 @@ export default function AdminDashboard() {
                         <span className="text-sm text-gray-700">{brand}</span>
                       </label>
                     ))}
+                    {userAllowedBrands.length === 0 && (
+                      <div className="col-span-full text-center text-gray-500 py-4">
+                        접근 가능한 브랜드가 없습니다. 관리자에게 문의하세요.
+                      </div>
+                    )}
                   </div>
                         <p className="mt-2 text-xs text-gray-500">
-                          기본적으로 모든 브랜드가 선택되어 있습니다. 원하지 않는 브랜드는 체크를 해제하세요.
+                          {session?.user.role === 'admin' 
+                            ? '기본적으로 모든 브랜드가 선택되어 있습니다. 원하지 않는 브랜드는 체크를 해제하세요.'
+                            : '권한이 있는 브랜드만 선택할 수 있습니다.'
+                          }
                         </p>
                 </div>
 

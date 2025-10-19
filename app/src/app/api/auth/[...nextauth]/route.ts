@@ -22,6 +22,7 @@ export const authOptions: NextAuthOptions = {
             id: user.id,
             username: user.username,
             role: user.role,
+            allowedBrands: user.allowedBrands,
           };
         }
         
@@ -34,6 +35,7 @@ export const authOptions: NextAuthOptions = {
       if (user) {
         token.username = user.username;
         token.role = user.role;
+        token.allowedBrands = user.allowedBrands;
       }
       return token;
     },
@@ -42,6 +44,7 @@ export const authOptions: NextAuthOptions = {
         session.user.id = token.sub!;
         session.user.username = token.username as string;
         session.user.role = token.role as string;
+        session.user.allowedBrands = token.allowedBrands as string[];
       }
       return session;
     }

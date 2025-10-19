@@ -7,6 +7,7 @@ export interface User {
   username: string;
   password: string;
   role: string;
+  allowedBrands?: string[]; // 접근 가능한 브랜드 목록 (admin은 모든 브랜드 접근 가능)
   createdAt: string;
 }
 
@@ -53,7 +54,7 @@ export async function authenticateUser(username: string, password: string): Prom
   return isValid ? user : null;
 }
 
-export async function createUser(username: string, password: string, role: string = 'user'): Promise<User> {
+export async function createUser(username: string, password: string, role: string = 'user', allowedBrands: string[] = []): Promise<User> {
   const users = getUsers();
   
   // Check if user already exists
@@ -67,11 +68,38 @@ export async function createUser(username: string, password: string, role: strin
     username,
     password: hashedPassword,
     role,
+    allowedBrands: role === 'admin' ? [] : allowedBrands, // admin은 빈 배열 (모든 브랜드 접근 가능)
     createdAt: new Date().toISOString()
   };
   
   users.push(newUser);
   saveUsers(users);
   
-  return newUser;
+export async function updateUserBrands(username: string, allowedBrands: string[]): Promise<User> {
+  const users = getUsers();
+  const userIndex = users.findIndex(u => u.username === username);
+  
+  if (userIndex === -1) {
+    throw new Error('User not found');
+  }
+  
+  // admin은 브랜드 제한이 없음
+  if (users[userIndex].role === 'admin') {
+    users[userIndex].allowedBrands = [];
+  } else {
+    users[userIndex].allowedBrands = allowedBrands;
+  }
+  
+  saveUsers(users);
+  return users[userIndex];
+}
+
+export function getUserAllowedBrands(user: User): string[] {
+  // admin은 모든 브랜드 접근 가능
+  if (user.role === 'admin') {
+    return ['바르너', '릴리이브', '보호리', '먼슬리픽', '색동서울'];
+  }
+  
+  // 일반 사용자는 할당된 브랜드만 접근 가능
+  return user.allowedBrands || [];
 }

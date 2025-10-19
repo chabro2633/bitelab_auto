@@ -8,6 +8,7 @@ interface User {
   id: string;
   username: string;
   role: string;
+  allowedBrands?: string[];
   createdAt: string;
 }
 
@@ -17,10 +18,15 @@ export default function UserManagement() {
   const [users, setUsers] = useState<User[]>([]);
   const [showAddForm, setShowAddForm] = useState(false);
   const [showChangePasswordForm, setShowChangePasswordForm] = useState(false);
+  const [showBrandPermissionForm, setShowBrandPermissionForm] = useState(false);
   const [selectedUser, setSelectedUser] = useState<string>('');
-  const [newUser, setNewUser] = useState({ username: '', password: '', role: 'user' });
+  const [selectedUserForBrands, setSelectedUserForBrands] = useState<string>('');
+  const [newUser, setNewUser] = useState({ username: '', password: '', role: 'user', allowedBrands: [] as string[] });
   const [newPassword, setNewPassword] = useState('');
+  const [userBrands, setUserBrands] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
+
+  const availableBrands = ['바르너', '릴리이브', '보호리', '먼슬리픽', '색동서울'];
 
   useEffect(() => {
     if (status === 'unauthenticated') {
@@ -109,6 +115,63 @@ export default function UserManagement() {
     }
   };
 
+  const handleUpdateBrandPermissions = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+
+    try {
+      const response = await fetch('/api/users/update-brands', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          username: selectedUserForBrands,
+          allowedBrands: userBrands,
+        }),
+      });
+
+      if (response.ok) {
+        alert('브랜드 권한이 성공적으로 업데이트되었습니다!');
+        setUserBrands([]);
+        setSelectedUserForBrands('');
+        setShowBrandPermissionForm(false);
+        fetchUsers(); // 사용자 목록 새로고침
+      } else {
+        const error = await response.json();
+        alert(error.error);
+      }
+    } catch (brandError) {
+      alert('브랜드 권한 업데이트에 실패했습니다.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleBrandToggle = (brand: string) => {
+    setUserBrands(prev =>
+      prev.includes(brand)
+        ? prev.filter(b => b !== brand)
+        : [...prev, brand]
+    );
+  };
+
+  const handleSelectAllBrands = () => {
+    setUserBrands(availableBrands);
+  };
+
+  const handleDeselectAllBrands = () => {
+    setUserBrands([]);
+  };
+
+  const handleUserSelectForBrands = (username: string) => {
+    setSelectedUserForBrands(username);
+    const user = users.find(u => u.username === username);
+    if (user) {
+      setUserBrands(user.allowedBrands || []);
+    }
+  };
+
   const handleLogout = () => {
     signOut({ callbackUrl: '/login' });
   };
@@ -173,6 +236,12 @@ export default function UserManagement() {
                   >
                     {showChangePasswordForm ? 'Cancel' : 'Change Password'}
                   </button>
+                  <button
+                    onClick={() => setShowBrandPermissionForm(!showBrandPermissionForm)}
+                    className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-md text-sm font-medium"
+                  >
+                    {showBrandPermissionForm ? 'Cancel' : 'Brand Permissions'}
+                  </button>
                 </div>
               </div>
 
@@ -222,6 +291,50 @@ export default function UserManagement() {
                       </select>
                     </div>
                   </div>
+                  
+                  {/* Brand Permissions for non-admin users */}
+                  {newUser.role === 'user' && (
+                    <div className="mt-4">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Allowed Brands
+                      </label>
+                      <div className="flex flex-wrap gap-2 mb-2">
+                        <button
+                          type="button"
+                          onClick={() => setNewUser({ ...newUser, allowedBrands: availableBrands })}
+                          className="text-xs bg-blue-100 hover:bg-blue-200 text-blue-800 px-2 py-1 rounded"
+                        >
+                          Select All
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setNewUser({ ...newUser, allowedBrands: [] })}
+                          className="text-xs bg-gray-100 hover:bg-gray-200 text-gray-800 px-2 py-1 rounded"
+                        >
+                          Deselect All
+                        </button>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {availableBrands.map((brand) => (
+                          <label key={brand} className="flex items-center">
+                            <input
+                              type="checkbox"
+                              checked={newUser.allowedBrands.includes(brand)}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setNewUser({ ...newUser, allowedBrands: [...newUser.allowedBrands, brand] });
+                                } else {
+                                  setNewUser({ ...newUser, allowedBrands: newUser.allowedBrands.filter(b => b !== brand) });
+                                }
+                              }}
+                              className="mr-1"
+                            />
+                            <span className="text-sm text-gray-700">{brand}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   <div className="mt-4">
                     <button
                       type="submit"
@@ -284,6 +397,77 @@ export default function UserManagement() {
                 </form>
               )}
 
+              {/* Brand Permission Form */}
+              {showBrandPermissionForm && (
+                <form onSubmit={handleUpdateBrandPermissions} className="mb-6 p-4 bg-purple-50 rounded-md">
+                  <h3 className="text-md font-medium text-gray-900 mb-4">Update Brand Permissions</h3>
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <div>
+                      <label htmlFor="selectedUserForBrands" className="block text-sm font-medium text-gray-700">
+                        Select User
+                      </label>
+                      <select
+                        id="selectedUserForBrands"
+                        required
+                        className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                        value={selectedUserForBrands}
+                        onChange={(e) => handleUserSelectForBrands(e.target.value)}
+                      >
+                        <option value="">Select a user...</option>
+                        {users.map((user) => (
+                          <option key={user.id} value={user.username}>
+                            {user.username} ({user.role})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Allowed Brands
+                      </label>
+                      <div className="flex flex-wrap gap-2 mb-2">
+                        <button
+                          type="button"
+                          onClick={handleSelectAllBrands}
+                          className="text-xs bg-blue-100 hover:bg-blue-200 text-blue-800 px-2 py-1 rounded"
+                        >
+                          Select All
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleDeselectAllBrands}
+                          className="text-xs bg-gray-100 hover:bg-gray-200 text-gray-800 px-2 py-1 rounded"
+                        >
+                          Deselect All
+                        </button>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {availableBrands.map((brand) => (
+                          <label key={brand} className="flex items-center">
+                            <input
+                              type="checkbox"
+                              checked={userBrands.includes(brand)}
+                              onChange={() => handleBrandToggle(brand)}
+                              className="mr-1"
+                            />
+                            <span className="text-sm text-gray-700">{brand}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="mt-4">
+                    <button
+                      type="submit"
+                      disabled={loading || !selectedUserForBrands}
+                      className="bg-purple-600 hover:bg-purple-700 disabled:bg-gray-400 text-white px-4 py-2 rounded-md text-sm font-medium"
+                    >
+                      {loading ? 'Updating...' : 'Update Brand Permissions'}
+                    </button>
+                  </div>
+                </form>
+              )}
+
               {/* Users List */}
               <div className="overflow-hidden shadow ring-1 ring-black ring-opacity-5 md:rounded-lg">
                 <table className="min-w-full divide-y divide-gray-300">
@@ -294,6 +478,9 @@ export default function UserManagement() {
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                         Role
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Allowed Brands
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                         Created At
@@ -314,6 +501,22 @@ export default function UserManagement() {
                           }`}>
                             {user.role}
                           </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          {user.role === 'admin' ? (
+                            <span className="text-blue-600 font-medium">All Brands</span>
+                          ) : (
+                            <div className="flex flex-wrap gap-1">
+                              {(user.allowedBrands || []).map((brand) => (
+                                <span key={brand} className="inline-flex px-2 py-1 text-xs bg-blue-100 text-blue-800 rounded">
+                                  {brand}
+                                </span>
+                              ))}
+                              {(user.allowedBrands || []).length === 0 && (
+                                <span className="text-gray-400 text-xs">No brands assigned</span>
+                              )}
+                            </div>
+                          )}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                           {new Date(user.createdAt).toLocaleDateString()}

@@ -29,13 +29,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { username, password, role = 'user' } = await request.json();
+    const { username, password, role = 'user', allowedBrands = [] } = await request.json();
     
     if (!username || !password) {
       return NextResponse.json({ error: 'Username and password are required' }, { status: 400 });
     }
 
-    const newUser = await createUser(username, password, role);
+    const newUser = await createUser(username, password, role, allowedBrands);
     
     // 비밀번호 제외하고 반환
     const { password: _password, ...safeUser } = newUser;

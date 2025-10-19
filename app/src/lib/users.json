@@ -20,6 +20,17 @@
       "password": "$2b$10$qR0qk.1iL63XCZVjk2dkqu366mF/JrOX82nsbK1ht80sAr5jfqy.u",
       "role": "user",
       "createdAt": "2025-10-18T05:21:01.649Z"
+    },
+    {
+      "id": "branduser",
+      "username": "branduser",
+      "password": "$2b$10$KqEf7UhSWR4VU5rkWu.l8.AYwVYfjDBVYxPNsiFYg1Ukjt3n8CLhm",
+      "role": "user",
+      "allowedBrands": [
+        "보호리",
+        "먼슬리픽"
+      ],
+      "createdAt": "2025-10-19T03:53:44.747Z"
     }
   ]
 }

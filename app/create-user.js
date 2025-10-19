@@ -9,15 +9,20 @@ async function createUserAccount() {
   const args = process.argv.slice(2);
   
   if (args.length < 2) {
-    console.log('사용법: node create-user.js <username> <password> [role]');
+    console.log('사용법: node create-user.js <username> <password> [role] [brands]');
     console.log('예시: node create-user.js admin mypassword admin');
-    console.log('예시: node create-user.js user1 password123 user');
+    console.log('예시: node create-user.js user1 password123 user "바르너 릴리이브"');
+    console.log('브랜드: 바르너, 릴리이브, 보호리, 먼슬리픽, 색동서울');
     process.exit(1);
   }
 
   const username = args[0];
   const password = args[1];
   const role = args[2] || 'user';
+  const brandsString = args[3] || '';
+  
+  // 브랜드 문자열을 배열로 변환
+  const allowedBrands = brandsString ? brandsString.split(' ').filter(b => b.trim()) : [];
 
   try {
     // 비밀번호 해싱
@@ -29,6 +34,7 @@ async function createUserAccount() {
       username: username,
       password: hashedPassword,
       role: role,
+      allowedBrands: role === 'admin' ? [] : allowedBrands, // admin은 빈 배열 (모든 브랜드 접근 가능)
       createdAt: new Date().toISOString()
     };
 
@@ -58,6 +64,11 @@ async function createUserAccount() {
     console.log(`👤 사용자명: ${username}`);
     console.log(`🔑 비밀번호: ${password}`);
     console.log(`👑 역할: ${role}`);
+    if (role === 'admin') {
+      console.log(`🏢 브랜드 권한: 모든 브랜드 접근 가능`);
+    } else {
+      console.log(`🏢 브랜드 권한: ${allowedBrands.length > 0 ? allowedBrands.join(', ') : '브랜드 권한 없음'}`);
+    }
     console.log(`📅 생성일: ${newUser.createdAt}`);
     console.log(`📁 저장 위치: ${usersFilePath}`);
 
