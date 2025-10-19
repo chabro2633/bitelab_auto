@@ -75,6 +75,9 @@ export async function createUser(username: string, password: string, role: strin
   users.push(newUser);
   saveUsers(users);
   
+  return newUser;
+}
+
 export async function updateUserBrands(username: string, allowedBrands: string[]): Promise<User> {
   const users = getUsers();
   const userIndex = users.findIndex(u => u.username === username);
