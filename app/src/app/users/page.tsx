@@ -44,10 +44,15 @@ export default function UserManagement() {
 
   const fetchUsers = async () => {
     try {
+      console.log('Fetching users...');
       const response = await fetch('/api/users');
+      console.log('Response status:', response.status);
       if (response.ok) {
         const data = await response.json();
+        console.log('Users data:', data);
         setUsers(data.users);
+      } else {
+        console.error('Failed to fetch users:', response.statusText);
       }
     } catch (fetchError) {
       console.error('Failed to fetch users:', fetchError);
@@ -258,7 +263,7 @@ export default function UserManagement() {
                         type="text"
                         id="username"
                         required
-                        className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                        className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm bg-black text-white"
                         value={newUser.username}
                         onChange={(e) => setNewUser({ ...newUser, username: e.target.value })}
                       />
@@ -271,7 +276,7 @@ export default function UserManagement() {
                         type="password"
                         id="password"
                         required
-                        className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                        className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm bg-black text-white"
                         value={newUser.password}
                         onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
                       />
@@ -491,7 +496,20 @@ export default function UserManagement() {
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
-                    {users.map((user) => (
+                    {users.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="px-6 py-12 text-center text-gray-500">
+                          <div className="flex flex-col items-center">
+                            <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z" />
+                            </svg>
+                            <p className="mt-2 text-sm">사용자가 없습니다.</p>
+                            <p className="text-xs text-gray-400">새 사용자를 추가해보세요.</p>
+                          </div>
+                        </td>
+                      </tr>
+                    ) : (
+                      users.map((user) => (
                       <tr key={user.id}>
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                           {user.username}
@@ -537,7 +555,8 @@ export default function UserManagement() {
                           </button>
                         </td>
                       </tr>
-                    ))}
+                      ))
+                    )}
                   </tbody>
                 </table>
               </div>

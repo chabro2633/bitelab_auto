@@ -129,12 +129,15 @@ export function migrateUsersToIncludeBrands(): void {
   let needsUpdate = false;
   
   const updatedUsers = users.map(user => {
-    if (!user.allowedBrands) {
+    const needsBrandsUpdate = !user.allowedBrands;
+    const needsFirstLoginUpdate = user.isFirstLogin === undefined;
+    
+    if (needsBrandsUpdate || needsFirstLoginUpdate) {
       needsUpdate = true;
       return {
         ...user,
-        allowedBrands: user.role === 'admin' ? [] : [], // 기존 사용자는 빈 배열로 시작
-        isFirstLogin: user.isFirstLogin === undefined ? true : user.isFirstLogin // 기존 사용자는 최초 로그인으로 설정
+        allowedBrands: user.allowedBrands || (user.role === 'admin' ? [] : []), // 기존 사용자는 빈 배열로 시작
+        isFirstLogin: user.isFirstLogin !== undefined ? user.isFirstLogin : false // 기존 사용자는 최초 로그인이 아님
       };
     }
     return user;
@@ -142,7 +145,7 @@ export function migrateUsersToIncludeBrands(): void {
   
   if (needsUpdate) {
     saveUsers(updatedUsers);
-    console.log('✅ 사용자 데이터에 브랜드 권한 필드가 추가되었습니다.');
+    console.log('✅ 사용자 데이터에 브랜드 권한 및 최초 로그인 필드가 추가되었습니다.');
   }
 }
 
