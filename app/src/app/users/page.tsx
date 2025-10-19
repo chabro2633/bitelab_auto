@@ -70,7 +70,7 @@ export default function UserManagement() {
       if (response.ok) {
         const data = await response.json();
         setUsers([...users, data.user]);
-        setNewUser({ username: '', password: '', role: 'user' });
+        setNewUser({ username: '', password: '', role: 'user', allowedBrands: [] });
         setShowAddForm(false);
       } else {
         const error = await response.json();
