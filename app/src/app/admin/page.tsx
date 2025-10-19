@@ -25,6 +25,10 @@ export default function AdminDashboard() {
   const [showConsole, setShowConsole] = useState(false);
   const [abortController, setAbortController] = useState<AbortController | null>(null);
   const [userAllowedBrands, setUserAllowedBrands] = useState<string[]>([]);
+  const [workflowStatus, setWorkflowStatus] = useState<any>(null);
+  const [workflowLogs, setWorkflowLogs] = useState<any[]>([]);
+  const [isPolling, setIsPolling] = useState(false);
+  const [pollingInterval, setPollingInterval] = useState<NodeJS.Timeout | null>(null);
   
   const availableBrands = ['바르너', '릴리이브', '보호리', '먼슬리픽', '색동서울'];
 
@@ -84,7 +88,82 @@ export default function AdminDashboard() {
 
   const clearConsole = () => {
     setConsoleLogs([]);
+    setWorkflowLogs([]);
   };
+
+  const fetchWorkflowStatus = async () => {
+    try {
+      const response = await fetch('/api/workflow-status');
+      if (response.ok) {
+        const data = await response.json();
+        setWorkflowStatus(data);
+        
+        // 워크플로우가 실행 중이고 작업이 있는 경우 로그 가져오기
+        if (data.jobs && data.jobs.length > 0) {
+          const job = data.jobs[0]; // 첫 번째 작업
+          if (job.status === 'in_progress' || job.status === 'completed') {
+            await fetchWorkflowLogs(data.run.id, job.id);
+          }
+        }
+        
+        // 워크플로우가 완료되면 폴링 중지
+        if (data.status === 'completed') {
+          stopPolling();
+          addConsoleLog(`🏁 워크플로우 완료: ${data.conclusion === 'success' ? '성공' : '실패'}`);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to fetch workflow status:', error);
+    }
+  };
+
+  const fetchWorkflowLogs = async (runId: string, jobId: string) => {
+    try {
+      const response = await fetch(`/api/workflow-logs?runId=${runId}&jobId=${jobId}`);
+      if (response.ok) {
+        const data = await response.json();
+        setWorkflowLogs(data.logs);
+        
+        // 최신 로그를 콘솔에 추가
+        const newLogs = data.logs.slice(workflowLogs.length);
+        newLogs.forEach((log: any) => {
+          const emoji = log.level === 'success' ? '✅' : 
+                       log.level === 'error' ? '❌' : 
+                       log.level === 'warning' ? '⚠️' : '📝';
+          addConsoleLog(`${emoji} [GitHub Actions] ${log.message}`);
+        });
+      }
+    } catch (error) {
+      console.error('Failed to fetch workflow logs:', error);
+    }
+  };
+
+  const startPolling = () => {
+    if (pollingInterval) return;
+    
+    setIsPolling(true);
+    const interval = setInterval(fetchWorkflowStatus, 5000); // 5초마다 폴링
+    setPollingInterval(interval);
+    addConsoleLog('🔄 GitHub Actions 상태 모니터링 시작');
+  };
+
+  const stopPolling = () => {
+    if (pollingInterval) {
+      clearInterval(pollingInterval);
+      setPollingInterval(null);
+    }
+    setIsPolling(false);
+    addConsoleLog('⏹️ GitHub Actions 상태 모니터링 중지');
+  };
+
+  // 컴포넌트 언마운트 시 폴링 중지
+  useEffect(() => {
+    return () => {
+      if (pollingInterval) {
+        clearInterval(pollingInterval);
+      }
+    };
+  }, [pollingInterval]);
 
   const abortScript = () => {
     if (abortController) {
@@ -127,14 +206,19 @@ export default function AdminDashboard() {
       addConsoleLog('📥 서버 응답 수신 중...');
       const data = await response.json();
       
-      if (data.success) {
-        addConsoleLog('✅ GitHub Actions 워크플로우가 성공적으로 트리거되었습니다!');
-        addConsoleLog(`🔗 워크플로우 상태 확인: ${data.workflowUrl}`);
-        addConsoleLog('⏳ 스크래핑이 백그라운드에서 실행 중입니다. 완료까지 몇 분 소요될 수 있습니다.');
-        addConsoleLog('📊 결과는 Google Sheets에서 확인할 수 있습니다.');
-      } else {
-        addConsoleLog(`❌ 워크플로우 트리거 실패: ${data.error}`);
-      }
+            if (data.success) {
+              addConsoleLog('✅ GitHub Actions 워크플로우가 성공적으로 트리거되었습니다!');
+              addConsoleLog(`🔗 워크플로우 상태 확인: ${data.workflowUrl}`);
+              addConsoleLog('⏳ 스크래핑이 백그라운드에서 실행 중입니다. 완료까지 몇 분 소요될 수 있습니다.');
+              addConsoleLog('📊 결과는 Google Sheets에서 확인할 수 있습니다.');
+              
+              // 워크플로우 상태 모니터링 시작
+              setTimeout(() => {
+                startPolling();
+              }, 2000); // 2초 후 폴링 시작
+            } else {
+              addConsoleLog(`❌ 워크플로우 트리거 실패: ${data.error}`);
+            }
       
       setResult({
         success: data.success,
@@ -378,10 +462,54 @@ export default function AdminDashboard() {
                   <div className="console-container bg-black text-green-400 font-mono text-sm rounded-lg p-4 h-96 overflow-y-auto border border-gray-600">
                     <div className="flex items-center justify-between mb-2 pb-2 border-b border-gray-700">
                       <span className="text-green-300 font-semibold">📟 실시간 콘솔</span>
-                      <span className="text-gray-400 text-xs">
-                        {consoleLogs.length}개 로그
-                      </span>
+                      <div className="flex items-center gap-2">
+                        {isPolling && (
+                          <span className="text-blue-400 text-xs animate-pulse">
+                            🔄 모니터링 중
+                          </span>
+                        )}
+                        <span className="text-gray-400 text-xs">
+                          {consoleLogs.length}개 로그
+                        </span>
+                      </div>
                     </div>
+                    
+                    {/* GitHub Actions 상태 표시 */}
+                    {workflowStatus && (
+                      <div className="mb-3 p-2 bg-gray-800 rounded border border-gray-600">
+                        <div className="text-yellow-400 text-xs font-semibold mb-1">
+                          🚀 GitHub Actions 상태
+                        </div>
+                        <div className="text-xs space-y-1">
+                          <div>
+                            상태: <span className={`font-semibold ${
+                              workflowStatus.status === 'completed' && workflowStatus.conclusion === 'success' ? 'text-green-400' :
+                              workflowStatus.status === 'completed' && workflowStatus.conclusion !== 'success' ? 'text-red-400' :
+                              workflowStatus.status === 'in_progress' ? 'text-blue-400' :
+                              'text-yellow-400'
+                            }`}>
+                              {workflowStatus.status === 'completed' ? 
+                                (workflowStatus.conclusion === 'success' ? '✅ 완료 (성공)' : '❌ 완료 (실패)') :
+                                workflowStatus.status === 'in_progress' ? '🔄 실행 중' :
+                                workflowStatus.status === 'queued' ? '⏳ 대기 중' :
+                                workflowStatus.status
+                              }
+                            </span>
+                          </div>
+                          {workflowStatus.run && (
+                            <div>
+                              실행 ID: <span className="text-gray-300">{workflowStatus.run.id}</span>
+                            </div>
+                          )}
+                          {workflowStatus.jobs && workflowStatus.jobs.length > 0 && (
+                            <div>
+                              작업: <span className="text-gray-300">{workflowStatus.jobs[0].name}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                    
                     <div className="space-y-1">
                       {consoleLogs.length === 0 ? (
                         <div className="text-gray-500 italic">
