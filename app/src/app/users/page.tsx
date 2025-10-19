@@ -485,6 +485,9 @@ export default function UserManagement() {
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                         Created At
                       </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Actions
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
@@ -520,6 +523,18 @@ export default function UserManagement() {
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                           {new Date(user.createdAt).toLocaleDateString()}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          <button
+                            onClick={() => {
+                              setSelectedUserForBrands(user.username);
+                              setUserBrands(user.allowedBrands || []);
+                              setShowBrandPermissionForm(true);
+                            }}
+                            className="text-purple-600 hover:text-purple-900 text-xs font-medium"
+                          >
+                            Edit Brands
+                          </button>
                         </td>
                       </tr>
                     ))}

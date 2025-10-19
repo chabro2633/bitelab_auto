@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
-import { getUsers, createUser } from '@/lib/auth';
+import { getUsers, createUser, migrateUsersToIncludeBrands } from '@/lib/auth';
 
 export async function GET() {
   try {
@@ -10,6 +10,9 @@ export async function GET() {
     if (!session || session.user.role !== 'admin') {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+
+    // 기존 사용자 데이터 마이그레이션 (allowedBrands 필드 추가)
+    migrateUsersToIncludeBrands();
 
     const users = getUsers();
     // 비밀번호 제외하고 사용자 정보 반환

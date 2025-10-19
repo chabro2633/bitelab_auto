@@ -106,3 +106,24 @@ export function getUserAllowedBrands(user: User): string[] {
   // 일반 사용자는 할당된 브랜드만 접근 가능
   return user.allowedBrands || [];
 }
+
+export function migrateUsersToIncludeBrands(): void {
+  const users = getUsers();
+  let needsUpdate = false;
+  
+  const updatedUsers = users.map(user => {
+    if (!user.allowedBrands) {
+      needsUpdate = true;
+      return {
+        ...user,
+        allowedBrands: user.role === 'admin' ? [] : [] // 기존 사용자는 빈 배열로 시작
+      };
+    }
+    return user;
+  });
+  
+  if (needsUpdate) {
+    saveUsers(updatedUsers);
+    console.log('✅ 사용자 데이터에 브랜드 권한 필드가 추가되었습니다.');
+  }
+}
