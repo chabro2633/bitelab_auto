@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   const session = await getServerSession(authOptions);
   
   if (!session) {
@@ -75,14 +75,14 @@ export async function GET(request: NextRequest) {
 
       if (jobsResponse.ok) {
         const jobsData = await jobsResponse.json();
-        jobs = jobsData.jobs.map((job: any) => ({
+        jobs = jobsData.jobs.map((job: { id: string; name: string; status: string; conclusion?: string; started_at?: string; completed_at?: string; steps: Array<{ name: string; status: string; conclusion?: string; number: number; started_at?: string; completed_at?: string }> }) => ({
           id: job.id,
           name: job.name,
           status: job.status,
           conclusion: job.conclusion,
           started_at: job.started_at,
           completed_at: job.completed_at,
-          steps: job.steps.map((step: any) => ({
+          steps: job.steps.map((step: { name: string; status: string; conclusion?: string; number: number; started_at?: string; completed_at?: string }) => ({
             name: step.name,
             status: step.status,
             conclusion: step.conclusion,

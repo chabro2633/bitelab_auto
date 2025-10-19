@@ -25,8 +25,13 @@ export default function AdminDashboard() {
   const [showConsole, setShowConsole] = useState(false);
   const [abortController, setAbortController] = useState<AbortController | null>(null);
   const [userAllowedBrands, setUserAllowedBrands] = useState<string[]>([]);
-  const [workflowStatus, setWorkflowStatus] = useState<any>(null);
-  const [workflowLogs, setWorkflowLogs] = useState<any[]>([]);
+  const [workflowStatus, setWorkflowStatus] = useState<{
+    run: { id: string; status: string; conclusion?: string; created_at: string; updated_at: string; html_url: string };
+    jobs: Array<{ id: string; name: string; status: string; conclusion?: string; steps: Array<{ name: string; status: string; conclusion?: string }> }>;
+    status: string;
+    conclusion?: string;
+  } | null>(null);
+  const [workflowLogs, setWorkflowLogs] = useState<Array<{ id: number; timestamp: string; level: string; message: string; raw: string }>>([]);
   const [isPolling, setIsPolling] = useState(false);
   const [pollingInterval, setPollingInterval] = useState<NodeJS.Timeout | null>(null);
   
@@ -126,7 +131,7 @@ export default function AdminDashboard() {
         
         // 최신 로그를 콘솔에 추가
         const newLogs = data.logs.slice(workflowLogs.length);
-        newLogs.forEach((log: any) => {
+        newLogs.forEach((log: { id: number; timestamp: string; level: string; message: string; raw: string }) => {
           const emoji = log.level === 'success' ? '✅' : 
                        log.level === 'error' ? '❌' : 
                        log.level === 'warning' ? '⚠️' : '📝';
