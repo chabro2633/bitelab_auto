@@ -26,8 +26,12 @@ export interface ExecutionLog {
   workflowUrl?: string;
 }
 
-const USERS_FILE = path.join(process.cwd(), 'src/lib/users.json');
-const EXECUTION_LOGS_FILE = path.join(process.cwd(), 'src/lib/execution-logs.json');
+const USERS_FILE = process.env.NODE_ENV === 'production' 
+  ? '/tmp/users.json' 
+  : path.join(process.cwd(), 'src/lib/users.json');
+const EXECUTION_LOGS_FILE = process.env.NODE_ENV === 'production'
+  ? '/tmp/execution-logs.json'
+  : path.join(process.cwd(), 'src/lib/execution-logs.json');
 
 export async function hashPassword(password: string): Promise<string> {
   return bcrypt.hash(password, 10);
@@ -39,6 +43,11 @@ export async function verifyPassword(password: string, hashedPassword: string): 
 
 export function getUsers(): User[] {
   try {
+    // 프로덕션 환경에서 기존 데이터가 없으면 초기 데이터 복사
+    if (process.env.NODE_ENV === 'production' && !fs.existsSync(USERS_FILE)) {
+      initializeProductionUsers();
+    }
+    
     const data = fs.readFileSync(USERS_FILE, 'utf8');
     const parsed = JSON.parse(data);
     return parsed.users || [];
@@ -48,13 +57,51 @@ export function getUsers(): User[] {
   }
 }
 
+function initializeProductionUsers(): void {
+  try {
+    console.log('Initializing production users data...');
+    
+    // 기본 사용자 데이터 생성
+    const defaultUsers = [
+      {
+        id: "admin",
+        username: "admin",
+        password: "$2b$10$3HQpehcWiR7OkStPA5iT6OBveKnqDingWeAYNhds6baUGqlOrlWie", // admin123
+        role: "admin",
+        allowedBrands: [],
+        isFirstLogin: false,
+        createdAt: "2024-01-01T00:00:00.000Z"
+      }
+    ];
+    
+    const data = JSON.stringify({ users: defaultUsers }, null, 2);
+    fs.writeFileSync(USERS_FILE, data, 'utf8');
+    console.log('Production users initialized successfully');
+  } catch (error) {
+    console.error('Error initializing production users:', error);
+  }
+}
+
 export function saveUsers(users: User[]): void {
   try {
+    console.log('Saving users to:', USERS_FILE);
+    console.log('Current working directory:', process.cwd());
+    
+    // 디렉토리가 존재하는지 확인하고 생성
+    const dir = path.dirname(USERS_FILE);
+    if (!fs.existsSync(dir)) {
+      console.log('Creating directory:', dir);
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    
     const data = JSON.stringify({ users }, null, 2);
     fs.writeFileSync(USERS_FILE, data, 'utf8');
+    console.log('Users saved successfully');
   } catch (error) {
     console.error('Error saving users file:', error);
-    throw new Error('Failed to save users');
+    console.error('File path:', USERS_FILE);
+    console.error('Error details:', error);
+    throw new Error(`Failed to save users: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }
 
@@ -153,6 +200,11 @@ export function migrateUsersToIncludeBrands(): void {
 export function getExecutionLogs(): ExecutionLog[] {
   try {
     if (!fs.existsSync(EXECUTION_LOGS_FILE)) {
+      // 프로덕션 환경에서 빈 로그 파일 생성
+      if (process.env.NODE_ENV === 'production') {
+        const data = JSON.stringify({ logs: [] }, null, 2);
+        fs.writeFileSync(EXECUTION_LOGS_FILE, data, 'utf8');
+      }
       return [];
     }
     const data = fs.readFileSync(EXECUTION_LOGS_FILE, 'utf8');
