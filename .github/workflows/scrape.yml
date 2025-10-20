@@ -32,18 +32,34 @@ jobs:
         
     - name: Install system dependencies
       run: |
-        sudo apt-get update
-        sudo apt-get install -y wget gnupg
+        # 캐시된 패키지 목록 사용으로 업데이트 시간 단축
+        sudo apt-get update -o Acquire::Check-Valid-Until=false -o Acquire::Check-Date=false
+        # 필요한 패키지만 설치 (wget, gnupg는 이미 기본 설치됨)
+        sudo apt-get install -y --no-install-recommends ca-certificates
         
-    - name: Install Python dependencies
+    - name: Cache Python dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+          
+    - name: Cache Playwright browsers
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/ms-playwright
+        key: ${{ runner.os }}-playwright-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-playwright-
+          
+    - name: Install dependencies and browsers (parallel)
       run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        
-    - name: Install Playwright browsers
-      run: |
-        playwright install chromium
-        playwright install-deps chromium
+        # Python 의존성과 Playwright 브라우저를 병렬로 설치
+        python -m pip install --upgrade pip &
+        pip install --cache-dir ~/.cache/pip -r requirements.txt &
+        playwright install chromium --with-deps &
+        wait
         
     - name: Create Google Sheets credentials
       run: |
