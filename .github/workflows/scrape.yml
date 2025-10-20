@@ -47,7 +47,13 @@ jobs:
         
     - name: Create Google Sheets credentials
       run: |
-        echo '${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}' > google_sheet_credentials.json
+        # JSON 파일을 더 안전하게 생성
+        cat > google_sheet_credentials.json << 'EOF'
+        ${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}
+        EOF
+        
+        # JSON 형식 검증
+        python -c "import json; json.load(open('google_sheet_credentials.json')); print('✅ JSON 형식이 올바릅니다.')"
         
     - name: Run scraping script
       env:
