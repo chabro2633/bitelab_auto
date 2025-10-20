@@ -68,8 +68,33 @@ jobs:
         ${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}
         EOF
         
-        # JSON 형식 검증
-        python -c "import json; json.load(open('google_sheet_credentials.json')); print('✅ JSON 형식이 올바릅니다.')"
+        # 파일 내용 확인 (디버깅용)
+        echo "생성된 JSON 파일 크기: $(wc -c < google_sheet_credentials.json)"
+        echo "JSON 파일 첫 100자:"
+        head -c 100 google_sheet_credentials.json
+        echo ""
+        echo "JSON 파일 마지막 100자:"
+        tail -c 100 google_sheet_credentials.json
+        echo ""
+        
+        # JSON 형식 검증 (더 안전한 방식)
+        python3 -c "
+        import json
+        import sys
+        try:
+            with open('google_sheet_credentials.json', 'r') as f:
+                data = json.load(f)
+            print('✅ JSON 형식이 올바릅니다.')
+            print(f'✅ 프로젝트 ID: {data.get(\"project_id\", \"N/A\")}')
+            print(f'✅ 클라이언트 이메일: {data.get(\"client_email\", \"N/A\")}')
+        except json.JSONDecodeError as e:
+            print(f'❌ JSON 파싱 오류: {e}')
+            print(f'❌ 오류 위치: 라인 {e.lineno}, 컬럼 {e.colno}')
+            sys.exit(1)
+        except Exception as e:
+            print(f'❌ 기타 오류: {e}')
+            sys.exit(1)
+        "
         
     - name: Run scraping script
       env:
