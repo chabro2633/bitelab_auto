@@ -7,11 +7,16 @@ export async function POST(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
     
-    if (!session || session.user.role !== 'admin') {
+    if (!session) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const { username, newPassword } = await request.json();
+    
+    // admin이거나 본인의 비밀번호를 변경하는 경우만 허용
+    if (session.user.role !== 'admin' && session.user.username !== username) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
     
     if (!username || !newPassword) {
       return NextResponse.json({ error: 'Username and new password are required' }, { status: 400 });
