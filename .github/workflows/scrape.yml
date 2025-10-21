@@ -48,18 +48,31 @@ jobs:
     - name: Cache Playwright browsers
       uses: actions/cache@v3
       with:
-        path: ~/.cache/ms-playwright
-        key: ${{ runner.os }}-playwright-${{ hashFiles('**/requirements.txt') }}
+        path: |
+          ~/.cache/ms-playwright
+          ~/.local/share/ms-playwright
+        key: ${{ runner.os }}-playwright-browsers-v1
         restore-keys: |
+          ${{ runner.os }}-playwright-browsers-
           ${{ runner.os }}-playwright-
           
-    - name: Install dependencies and browsers (parallel)
+    - name: Install Python dependencies
       run: |
-        # Python 의존성과 Playwright 브라우저를 병렬로 설치
-        python -m pip install --upgrade pip &
-        pip install --cache-dir ~/.cache/pip -r requirements.txt &
-        playwright install chromium --with-deps &
-        wait
+        python -m pip install --upgrade pip
+        pip install --cache-dir ~/.cache/pip -r requirements.txt
+        
+    - name: Install Playwright browsers (cached)
+      run: |
+        # Playwright 브라우저 설치 (캐시 확인 후)
+        if [ ! -d ~/.cache/ms-playwright/chromium-* ]; then
+          echo "Playwright 브라우저 캐시가 없습니다. 설치 중..."
+          playwright install chromium --with-deps
+          echo "✅ Playwright 브라우저 설치 완료"
+        else
+          echo "✅ Playwright 브라우저 캐시를 사용합니다."
+          # 캐시된 브라우저가 제대로 작동하는지 확인
+          playwright install-deps chromium
+        fi
         
     - name: Create Google Sheets credentials
       run: |
