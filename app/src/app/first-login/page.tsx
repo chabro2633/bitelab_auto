@@ -14,15 +14,26 @@ export default function FirstLoginPage() {
   const [error, setError] = useState('');
 
   useEffect(() => {
+    console.log('=== FIRST LOGIN PAGE LOADED ===');
+    console.log('Session status:', status);
+    console.log('Session data:', JSON.stringify(session, null, 2));
+    
     if (status === 'unauthenticated') {
+      console.log('User not authenticated, redirecting to login');
       router.push('/login');
     } else if (session && !session.user.isFirstLogin) {
+      console.log('User is not in first login state, redirecting to admin');
       router.push('/admin');
+    } else if (session && session.user.isFirstLogin) {
+      console.log('User is in first login state, staying on page');
     }
   }, [status, session, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    console.log('=== SUBMIT BUTTON CLICKED ===');
+    console.log('Form submitted, starting password change process');
+    
     setLoading(true);
     setError('');
 
