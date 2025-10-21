@@ -39,6 +39,8 @@ export default function FirstLoginPage() {
     }
 
     try {
+      console.log('Attempting password change for user:', session?.user.username);
+      
       const response = await fetch('/api/users/change-password', {
         method: 'POST',
         headers: {
@@ -49,6 +51,9 @@ export default function FirstLoginPage() {
           newPassword: newPassword,
         }),
       });
+
+      console.log('Response status:', response.status);
+      console.log('Response ok:', response.ok);
 
       if (response.ok) {
         // 최초 로그인 완료 처리
@@ -63,9 +68,11 @@ export default function FirstLoginPage() {
         router.push('/admin');
       } else {
         const errorData = await response.json();
+        console.error('Password change error:', errorData);
         setError(errorData.error || '비밀번호 변경에 실패했습니다.');
       }
     } catch (err) {
+      console.error('Password change exception:', err);
       setError('비밀번호 변경 중 오류가 발생했습니다.');
     } finally {
       setLoading(false);
