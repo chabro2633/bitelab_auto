@@ -5,21 +5,27 @@
       "username": "admin",
       "password": "$2b$10$3HQpehcWiR7OkStPA5iT6OBveKnqDingWeAYNhds6baUGqlOrlWie",
       "role": "admin",
-      "createdAt": "2024-01-01T00:00:00.000Z"
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "allowedBrands": [],
+      "isFirstLogin": false
     },
     {
       "id": "testuser",
       "username": "testuser",
       "password": "$2b$10$eVh/ykN1JIashCWkmLpQgu3p0nwRhLCFO4dEnbOlQxFh7g9oTsB5e",
       "role": "user",
-      "createdAt": "2025-10-18T05:18:40.826Z"
+      "createdAt": "2025-10-18T05:18:40.826Z",
+      "allowedBrands": [],
+      "isFirstLogin": false
     },
     {
       "id": "1760764861649",
       "username": "baruner",
       "password": "$2b$10$qR0qk.1iL63XCZVjk2dkqu366mF/JrOX82nsbK1ht80sAr5jfqy.u",
       "role": "user",
-      "createdAt": "2025-10-18T05:21:01.649Z"
+      "createdAt": "2025-10-18T05:21:01.649Z",
+      "allowedBrands": [],
+      "isFirstLogin": false
     },
     {
       "id": "branduser",
@@ -30,7 +36,19 @@
         "보호리",
         "먼슬리픽"
       ],
-      "createdAt": "2025-10-19T03:53:44.747Z"
+      "createdAt": "2025-10-19T03:53:44.747Z",
+      "isFirstLogin": false
+    },
+    {
+      "id": "1761023729871",
+      "username": "tei",
+      "password": "$2b$10$bLcRO9X8UsW8kDtnC77pdufe4Z.tKWiEBLWpb5YQpF42zSl2Jn1fa",
+      "role": "user",
+      "allowedBrands": [
+        "바르너"
+      ],
+      "isFirstLogin": false,
+      "createdAt": "2025-10-21T05:15:29.871Z"
     }
   ]
 }
