@@ -39,40 +39,54 @@ export default function FirstLoginPage() {
     }
 
     try {
-      console.log('Attempting password change for user:', session?.user.username);
+      console.log('=== FRONTEND PASSWORD CHANGE START ===');
+      console.log('Session user:', JSON.stringify(session?.user, null, 2));
+      console.log('New password length:', newPassword.length);
+      console.log('Confirm password length:', confirmPassword.length);
+      
+      const requestBody = {
+        username: session?.user.username,
+        newPassword: newPassword,
+      };
+      
+      console.log('Request body:', JSON.stringify(requestBody, null, 2));
       
       const response = await fetch('/api/users/change-password', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          username: session?.user.username,
-          newPassword: newPassword,
-        }),
+        body: JSON.stringify(requestBody),
       });
 
       console.log('Response status:', response.status);
       console.log('Response ok:', response.ok);
+      console.log('Response headers:', Object.fromEntries(response.headers.entries()));
 
       if (response.ok) {
+        console.log('✅ Password change successful, completing first login...');
+        
         // 최초 로그인 완료 처리
-        await fetch('/api/users/first-login-complete', {
+        const completeResponse = await fetch('/api/users/first-login-complete', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
         });
-
+        
+        console.log('First login complete response:', completeResponse.status);
+        
         alert('비밀번호가 성공적으로 변경되었습니다!');
         router.push('/admin');
       } else {
         const errorData = await response.json();
-        console.error('Password change error:', errorData);
+        console.error('❌ Password change error:', errorData);
+        console.error('Full response:', await response.text());
         setError(errorData.error || '비밀번호 변경에 실패했습니다.');
       }
     } catch (err) {
-      console.error('Password change exception:', err);
+      console.error('❌ Password change exception:', err);
+      console.error('Exception stack:', err instanceof Error ? err.stack : 'No stack trace');
       setError('비밀번호 변경 중 오류가 발생했습니다.');
     } finally {
       setLoading(false);
