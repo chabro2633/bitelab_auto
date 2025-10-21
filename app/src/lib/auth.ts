@@ -1,6 +1,7 @@
 import bcrypt from 'bcryptjs';
 import fs from 'fs';
 import path from 'path';
+import { kv } from '@vercel/kv';
 
 export interface User {
   id: string;
@@ -41,10 +42,32 @@ export async function verifyPassword(password: string, hashedPassword: string): 
   return bcrypt.compare(password, hashedPassword);
 }
 
-export function getUsers(): User[] {
+export async function getUsers(): Promise<User[]> {
   try {
-    // 프로덕션 환경에서 기존 데이터가 없으면 초기 데이터 복사
-    if (process.env.NODE_ENV === 'production' && !fs.existsSync(USERS_FILE)) {
+    // 프로덕션 환경에서는 KV 사용
+    if (process.env.NODE_ENV === 'production') {
+      const users = await kv.get<User[]>('users');
+      if (!users) {
+        // 초기 사용자 데이터 생성
+        const defaultUsers = [
+          {
+            id: "admin",
+            username: "admin",
+            password: "$2b$10$3HQpehcWiR7OkStPA5iT6OBveKnqDingWeAYNhds6baUGqlOrlWie", // admin123
+            role: "admin",
+            allowedBrands: [],
+            isFirstLogin: false,
+            createdAt: "2024-01-01T00:00:00.000Z"
+          }
+        ];
+        await kv.set('users', defaultUsers);
+        return defaultUsers;
+      }
+      return users;
+    }
+    
+    // 개발 환경에서는 파일 사용
+    if (!fs.existsSync(USERS_FILE)) {
       initializeProductionUsers();
     }
     
@@ -52,7 +75,7 @@ export function getUsers(): User[] {
     const parsed = JSON.parse(data);
     return parsed.users || [];
   } catch (error) {
-    console.error('Error reading users file:', error);
+    console.error('Error reading users:', error);
     return [];
   }
 }
@@ -82,8 +105,16 @@ function initializeProductionUsers(): void {
   }
 }
 
-export function saveUsers(users: User[]): void {
+export async function saveUsers(users: User[]): Promise<void> {
   try {
+    // 프로덕션 환경에서는 KV 사용
+    if (process.env.NODE_ENV === 'production') {
+      await kv.set('users', users);
+      console.log('Users saved to KV successfully');
+      return;
+    }
+    
+    // 개발 환경에서는 파일 사용
     console.log('Saving users to:', USERS_FILE);
     console.log('Current working directory:', process.cwd());
     
@@ -98,15 +129,13 @@ export function saveUsers(users: User[]): void {
     fs.writeFileSync(USERS_FILE, data, 'utf8');
     console.log('Users saved successfully');
   } catch (error) {
-    console.error('Error saving users file:', error);
-    console.error('File path:', USERS_FILE);
-    console.error('Error details:', error);
+    console.error('Error saving users:', error);
     throw new Error(`Failed to save users: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }
 
 export async function authenticateUser(username: string, password: string): Promise<User | null> {
-  const users = getUsers();
+  const users = await getUsers();
   const user = users.find(u => u.username === username);
   
   if (!user) {
@@ -118,7 +147,7 @@ export async function authenticateUser(username: string, password: string): Prom
 }
 
 export async function createUser(username: string, password: string = 'bitelab', role: string = 'user', allowedBrands: string[] = []): Promise<User> {
-  const users = getUsers();
+  const users = await getUsers();
   
   // Check if user already exists
   if (users.find(u => u.username === username)) {
@@ -137,13 +166,13 @@ export async function createUser(username: string, password: string = 'bitelab',
   };
   
   users.push(newUser);
-  saveUsers(users);
+  await saveUsers(users);
   
   return newUser;
 }
 
 export async function updateUserBrands(username: string, allowedBrands: string[]): Promise<User> {
-  const users = getUsers();
+  const users = await getUsers();
   const userIndex = users.findIndex(u => u.username === username);
   
   if (userIndex === -1) {
@@ -157,7 +186,7 @@ export async function updateUserBrands(username: string, allowedBrands: string[]
     users[userIndex].allowedBrands = allowedBrands;
   }
   
-  saveUsers(users);
+  await saveUsers(users);
   return users[userIndex];
 }
 
@@ -171,8 +200,8 @@ export function getUserAllowedBrands(user: User): string[] {
   return user.allowedBrands || [];
 }
 
-export function migrateUsersToIncludeBrands(): void {
-  const users = getUsers();
+export async function migrateUsersToIncludeBrands(): Promise<void> {
+  const users = await getUsers();
   let needsUpdate = false;
   
   const updatedUsers = users.map(user => {
@@ -191,7 +220,7 @@ export function migrateUsersToIncludeBrands(): void {
   });
   
   if (needsUpdate) {
-    saveUsers(updatedUsers);
+    await saveUsers(updatedUsers);
     console.log('✅ 사용자 데이터에 브랜드 권한 및 최초 로그인 필드가 추가되었습니다.');
   }
 }
@@ -254,12 +283,12 @@ export function updateExecutionLog(logId: string, updates: Partial<ExecutionLog>
   }
 }
 
-export function markFirstLoginComplete(userId: string): void {
-  const users = getUsers();
+export async function markFirstLoginComplete(userId: string): Promise<void> {
+  const users = await getUsers();
   const userIndex = users.findIndex(u => u.id === userId);
   
   if (userIndex !== -1) {
     users[userIndex].isFirstLogin = false;
-    saveUsers(users);
+    await saveUsers(users);
   }
 }

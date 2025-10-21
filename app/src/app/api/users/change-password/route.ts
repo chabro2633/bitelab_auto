@@ -5,13 +5,12 @@ import { getUsers, saveUsers, hashPassword } from '@/lib/auth';
 
 export async function POST(request: NextRequest) {
   try {
+    // NextAuth 세션 가져오기
     const session = await getServerSession(authOptions);
     
     console.log('=== PASSWORD CHANGE DEBUG ===');
     console.log('Session exists:', !!session);
     console.log('Session user:', session?.user);
-    console.log('Session role:', session?.user?.role);
-    console.log('Session username:', session?.user?.username);
     
     if (!session) {
       console.log('❌ No session found - returning 401');
@@ -41,7 +40,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Username and new password are required' }, { status: 400 });
     }
 
-    const users = getUsers();
+    const users = await getUsers();
     const userIndex = users.findIndex(user => user.username === username);
     
     if (userIndex === -1) {
@@ -55,8 +54,8 @@ export async function POST(request: NextRequest) {
     // 비밀번호 업데이트
     users[userIndex].password = hashedPassword;
     
-    // 파일에 저장
-    saveUsers(users);
+    // 저장
+    await saveUsers(users);
     
     console.log('✅ Password changed successfully for user:', username);
     
