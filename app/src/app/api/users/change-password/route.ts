@@ -7,33 +7,33 @@ export async function POST(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
     
-    console.log('Session data:', {
-      exists: !!session,
-      user: session?.user,
-      role: session?.user?.role,
-      username: session?.user?.username
-    });
+    console.log('=== PASSWORD CHANGE DEBUG ===');
+    console.log('Session exists:', !!session);
+    console.log('Session user:', session?.user);
+    console.log('Session role:', session?.user?.role);
+    console.log('Session username:', session?.user?.username);
     
     if (!session) {
-      console.log('No session found');
+      console.log('❌ No session found - returning 401');
       return NextResponse.json({ error: 'Unauthorized - No session' }, { status: 401 });
     }
 
     const { username, newPassword } = await request.json();
     
-    console.log('Request data:', {
-      requestedUsername: username,
-      sessionUsername: session.user.username,
-      sessionRole: session.user.role
-    });
+    console.log('Request username:', username);
+    console.log('Session username:', session.user.username);
+    console.log('Session role:', session.user.role);
     
-    // admin이거나 본인의 비밀번호를 변경하는 경우만 허용
-    if (session.user.role !== 'admin' && session.user.username !== username) {
-      console.log('Authorization failed:', {
-        sessionRole: session.user.role,
-        sessionUsername: session.user.username,
-        requestedUsername: username
-      });
+    // 최초 로그인 사용자는 본인 비밀번호 변경 허용
+    // Admin은 모든 사용자 비밀번호 변경 허용
+    const isAdmin = session.user.role === 'admin';
+    const isOwnPassword = session.user.username === username;
+    
+    console.log('Is admin:', isAdmin);
+    console.log('Is own password:', isOwnPassword);
+    
+    if (!isAdmin && !isOwnPassword) {
+      console.log('❌ Authorization failed - not admin and not own password');
       return NextResponse.json({ error: 'Unauthorized - Cannot change other user password' }, { status: 401 });
     }
     
@@ -45,6 +45,7 @@ export async function POST(request: NextRequest) {
     const userIndex = users.findIndex(user => user.username === username);
     
     if (userIndex === -1) {
+      console.log('❌ User not found:', username);
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
@@ -57,7 +58,7 @@ export async function POST(request: NextRequest) {
     // 파일에 저장
     saveUsers(users);
     
-    console.log('Password changed successfully for user:', username);
+    console.log('✅ Password changed successfully for user:', username);
     
     return NextResponse.json({ 
       message: 'Password changed successfully',
@@ -65,7 +66,7 @@ export async function POST(request: NextRequest) {
     });
     
   } catch (error: unknown) {
-    console.error('Password change error:', error);
+    console.error('❌ Password change error:', error);
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Unknown error' }, { status: 500 });
   }
 }
