@@ -12,9 +12,9 @@ export async function GET() {
     }
 
     // 기존 사용자 데이터 마이그레이션 (allowedBrands 필드 추가)
-    migrateUsersToIncludeBrands();
+    await migrateUsersToIncludeBrands();
 
-    const users = getUsers();
+    const users = await getUsers();
     // 비밀번호 제외하고 사용자 정보 반환
     const safeUsers = users.map(({ password: _password, ...user }) => user);
     
