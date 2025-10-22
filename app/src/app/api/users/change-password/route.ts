@@ -20,7 +20,14 @@ export async function POST(request: NextRequest) {
     if (!session) {
       console.log('❌ No session found - returning 401');
       console.error('❌ No session found - returning 401 (ERROR LOG)');
-      return NextResponse.json({ error: 'Unauthorized - No session' }, { status: 401 });
+      return NextResponse.json({ 
+        error: 'Unauthorized - No session',
+        debug: {
+          sessionExists: false,
+          timestamp: new Date().toISOString(),
+          environment: process.env.NODE_ENV
+        }
+      }, { status: 401 });
     }
 
     const body = await request.json();
@@ -52,7 +59,20 @@ export async function POST(request: NextRequest) {
     // 최초 로그인 사용자이거나 admin이거나 본인 비밀번호인 경우 허용
     if (!isAdmin && !isOwnPassword && !isFirstLogin) {
       console.log('❌ Authorization failed - not admin, not own password, not first login');
-      return NextResponse.json({ error: 'Unauthorized - Cannot change other user password' }, { status: 401 });
+      console.error('❌ Authorization failed (ERROR LOG)');
+      return NextResponse.json({ 
+        error: 'Unauthorized - Cannot change other user password',
+        debug: {
+          sessionExists: true,
+          isAdmin,
+          isOwnPassword,
+          isFirstLogin,
+          sessionUser: session.user,
+          requestUsername: username,
+          timestamp: new Date().toISOString(),
+          environment: process.env.NODE_ENV
+        }
+      }, { status: 401 });
     }
     
     if (!username || !newPassword) {
