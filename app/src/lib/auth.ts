@@ -44,29 +44,7 @@ export async function verifyPassword(password: string, hashedPassword: string): 
 
 export async function getUsers(): Promise<User[]> {
   try {
-    // 프로덕션 환경에서는 KV 사용
-    if (process.env.NODE_ENV === 'production') {
-      const users = await kv.get<User[]>('users');
-      if (!users) {
-        // 초기 사용자 데이터 생성
-        const defaultUsers = [
-          {
-            id: "admin",
-            username: "admin",
-            password: "$2b$10$3HQpehcWiR7OkStPA5iT6OBveKnqDingWeAYNhds6baUGqlOrlWie", // admin123
-            role: "admin",
-            allowedBrands: [],
-            isFirstLogin: false,
-            createdAt: "2024-01-01T00:00:00.000Z"
-          }
-        ];
-        await kv.set('users', defaultUsers);
-        return defaultUsers;
-      }
-      return users;
-    }
-    
-    // 개발 환경에서는 파일 사용
+    // 임시로 모든 환경에서 파일 시스템 사용 (KV 설정 문제로 인해)
     if (!fs.existsSync(USERS_FILE)) {
       initializeProductionUsers();
     }
@@ -107,14 +85,7 @@ function initializeProductionUsers(): void {
 
 export async function saveUsers(users: User[]): Promise<void> {
   try {
-    // 프로덕션 환경에서는 KV 사용
-    if (process.env.NODE_ENV === 'production') {
-      await kv.set('users', users);
-      console.log('Users saved to KV successfully');
-      return;
-    }
-    
-    // 개발 환경에서는 파일 사용
+    // 임시로 모든 환경에서 파일 시스템 사용 (KV 설정 문제로 인해)
     console.log('Saving users to:', USERS_FILE);
     console.log('Current working directory:', process.cwd());
     
