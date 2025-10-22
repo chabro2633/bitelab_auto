@@ -9,12 +9,12 @@ export async function POST(request: NextRequest) {
     console.log('🚀 API ROUTE EXECUTED - PASSWORD CHANGE START');
     console.error('🚀 API ROUTE EXECUTED - PASSWORD CHANGE START (ERROR LOG)');
     
-    // 즉시 응답으로 테스트
+    // 세션 체크 없이 바로 테스트 응답
     return NextResponse.json({ 
-      message: 'API route is working',
+      message: 'API route is working - NO SESSION CHECK',
       timestamp: new Date().toISOString(),
       environment: process.env.NODE_ENV,
-      debug: 'This should appear if API route executes'
+      debug: 'This should appear if API route executes without session check'
     });
     
   } catch (error: unknown) {
