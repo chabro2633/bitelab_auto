@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useSession, signOut } from 'next-auth/react';
+import { useSession, signOut, getSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 
@@ -87,8 +87,27 @@ export default function FirstLoginPage() {
         
         console.log('First login complete response:', completeResponse.status);
         
+        // 세션 새로고침
+        console.log('🔄 Refreshing session...');
+        await getSession();
+        
+        // 응답에서 업데이트된 사용자 정보 확인
+        const completeData = await completeResponse.json();
+        console.log('📊 Complete response data:', completeData);
+        
         alert('비밀번호가 성공적으로 변경되었습니다!');
-        router.push('/admin');
+        
+        // 세션 강제 갱신 후 관리자 페이지로 이동
+        console.log('🔄 Forcing session refresh...');
+        
+        // NextAuth 세션 갱신
+        await getSession();
+        
+        // 잠시 대기 후 관리자 페이지로 이동
+        setTimeout(() => {
+          console.log('🔄 Redirecting to admin page...');
+          window.location.href = '/admin';
+        }, 500);
       } else {
         const errorData = await response.json();
         console.error('❌ Password change error:', errorData);

@@ -1,6 +1,6 @@
 import NextAuth, { NextAuthOptions } from 'next-auth';
 import CredentialsProvider from 'next-auth/providers/credentials';
-import { authenticateUser } from '@/lib/auth';
+import { authenticateUser, getUsers } from '@/lib/auth';
 
 export const authOptions: NextAuthOptions = {
   providers: [
@@ -39,6 +39,28 @@ export const authOptions: NextAuthOptions = {
         token.allowedBrands = user.allowedBrands;
         token.isFirstLogin = user.isFirstLogin;
       }
+      
+      // 매번 JWT 토큰이 생성될 때마다 최신 사용자 데이터 가져오기
+      if (token.sub) {
+        try {
+          const users = await getUsers();
+          const currentUser = users.find(u => u.id === token.sub);
+          if (currentUser) {
+            token.username = currentUser.username;
+            token.role = currentUser.role;
+            token.allowedBrands = currentUser.allowedBrands;
+            token.isFirstLogin = currentUser.isFirstLogin;
+            console.log('🔄 JWT updated with latest user data:', {
+              id: currentUser.id,
+              username: currentUser.username,
+              isFirstLogin: currentUser.isFirstLogin
+            });
+          }
+        } catch (error) {
+          console.error('❌ Error fetching user data in JWT callback:', error);
+        }
+      }
+      
       return token;
     },
     async session({ session, token }) {

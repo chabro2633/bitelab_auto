@@ -5,16 +5,77 @@ import { getUsers, saveUsers, hashPassword } from '@/lib/auth';
 
 export async function POST(request: NextRequest) {
   try {
-    // 가장 기본적인 로그 - 이게 보이지 않으면 API 라우트 자체가 실행되지 않는 것
-    console.log('🚀 API ROUTE EXECUTED - PASSWORD CHANGE START');
-    console.error('🚀 API ROUTE EXECUTED - PASSWORD CHANGE START (ERROR LOG)');
+    // 로컬 테스트용 로그
+    console.log('🚀 LOCAL API ROUTE EXECUTED - PASSWORD CHANGE START');
+    console.error('🚀 LOCAL API ROUTE EXECUTED - PASSWORD CHANGE START (ERROR LOG)');
     
-    // 세션 체크 없이 바로 테스트 응답
+    // 요청 정보 로깅
+    const body = await request.json();
+    console.log('📝 Request body:', JSON.stringify(body, null, 2));
+    
+    // 세션 체크
+    const session = await getServerSession(authOptions);
+    console.log('🔐 Session exists:', !!session);
+    console.log('👤 Session user:', JSON.stringify(session?.user, null, 2));
+    
+    if (!session) {
+      console.log('❌ No session found - returning 401');
+      return NextResponse.json({ error: 'Unauthorized - No session' }, { status: 401 });
+    }
+
+    const { username, newPassword } = body;
+    
+    // 최초 로그인 사용자는 본인 비밀번호 변경 허용
+    // Admin은 모든 사용자 비밀번호 변경 허용
+    const isAdmin = session.user.role === 'admin';
+    const isOwnPassword = session.user.username === username;
+    const isFirstLogin = session.user.isFirstLogin === true;
+    
+    console.log('Authorization checks:');
+    console.log('- Is admin:', isAdmin);
+    console.log('- Is own password:', isOwnPassword);
+    console.log('- Is first login:', isFirstLogin);
+    
+    // 최초 로그인 사용자이거나 admin이거나 본인 비밀번호인 경우 허용
+    if (!isAdmin && !isOwnPassword && !isFirstLogin) {
+      console.log('❌ Authorization failed - not admin, not own password, not first login');
+      return NextResponse.json({ error: 'Unauthorized - Cannot change other user password' }, { status: 401 });
+    }
+    
+    if (!username || !newPassword) {
+      console.log('❌ Missing username or password');
+      return NextResponse.json({ error: 'Username and new password are required' }, { status: 400 });
+    }
+
+    console.log('Getting users from storage...');
+    const users = await getUsers();
+    console.log('Total users found:', users.length);
+    
+    const userIndex = users.findIndex(user => user.username === username);
+    console.log('User index:', userIndex);
+    
+    if (userIndex === -1) {
+      console.log('❌ User not found:', username);
+      return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    }
+
+    console.log('Hashing new password...');
+    // 비밀번호 해싱
+    const hashedPassword = await hashPassword(newPassword);
+    
+    console.log('Updating user password...');
+    // 비밀번호 업데이트
+    users[userIndex].password = hashedPassword;
+    
+    console.log('Saving users to storage...');
+    // 저장
+    await saveUsers(users);
+    
+    console.log('✅ Password changed successfully for user:', username);
+    
     return NextResponse.json({ 
-      message: 'API route is working - NO SESSION CHECK',
-      timestamp: new Date().toISOString(),
-      environment: process.env.NODE_ENV,
-      debug: 'This should appear if API route executes without session check'
+      message: 'Password changed successfully',
+      username: username 
     });
     
   } catch (error: unknown) {
