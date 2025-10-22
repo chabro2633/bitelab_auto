@@ -5,28 +5,38 @@ import { getUsers, saveUsers, hashPassword } from '@/lib/auth';
 
 export async function POST(request: NextRequest) {
   try {
+    // Vercel에서도 로그가 보이도록 강제 출력
     console.log('=== PASSWORD CHANGE REQUEST START ===');
+    console.error('=== PASSWORD CHANGE REQUEST START (ERROR LOG) ===');
     
     // NextAuth 세션 가져오기
     const session = await getServerSession(authOptions);
     
     console.log('Session exists:', !!session);
+    console.error('Session exists (ERROR LOG):', !!session);
     console.log('Session user:', JSON.stringify(session?.user, null, 2));
+    console.error('Session user (ERROR LOG):', JSON.stringify(session?.user, null, 2));
     
     if (!session) {
       console.log('❌ No session found - returning 401');
+      console.error('❌ No session found - returning 401 (ERROR LOG)');
       return NextResponse.json({ error: 'Unauthorized - No session' }, { status: 401 });
     }
 
     const body = await request.json();
     console.log('Request body:', JSON.stringify(body, null, 2));
+    console.error('Request body (ERROR LOG):', JSON.stringify(body, null, 2));
     
     const { username, newPassword } = body;
     
     console.log('Request username:', username);
+    console.error('Request username (ERROR LOG):', username);
     console.log('Session username:', session.user.username);
+    console.error('Session username (ERROR LOG):', session.user.username);
     console.log('Session role:', session.user.role);
+    console.error('Session role (ERROR LOG):', session.user.role);
     console.log('Session isFirstLogin:', session.user.isFirstLogin);
+    console.error('Session isFirstLogin (ERROR LOG):', session.user.isFirstLogin);
     
     // 최초 로그인 사용자는 본인 비밀번호 변경 허용
     // Admin은 모든 사용자 비밀번호 변경 허용
