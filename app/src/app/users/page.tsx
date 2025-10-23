@@ -64,7 +64,7 @@ export default function UserManagement() {
       const response = await fetch('/api/users');
       if (response.ok) {
         const data = await response.json();
-        setUsers(data);
+        setUsers(data.users || []); // data.users 배열을 사용
       }
     } catch (error) {
       console.error('Error fetching users:', error);
