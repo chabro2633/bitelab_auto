@@ -24,9 +24,14 @@ export default function LoginPage() {
       });
 
       if (result?.error) {
+        console.error('Login error:', result.error);
         setLoginError('Invalid username or password');
-      } else {
+      } else if (result?.ok) {
+        console.log('Login successful, redirecting to admin');
         router.push('/admin');
+      } else {
+        console.error('Unexpected login result:', result);
+        setLoginError('An unexpected error occurred');
       }
     } catch (loginError) {
       setLoginError('An error occurred during login');
