@@ -2,11 +2,12 @@ import { cookies } from 'next/headers';
 import { authenticateUser } from './auth';
 
 // 세션 생성
-export async function createSession(userId: string, username: string, role: string) {
+export async function createSession(userId: string, username: string, role: string, allowedBrands: string[] = []) {
   const sessionData = {
     userId,
     username,
     role,
+    allowedBrands,
     expires: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), // 24시간
   };
   
@@ -57,7 +58,7 @@ export async function loginUser(username: string, password: string) {
   try {
     const user = await authenticateUser(username, password);
     if (user) {
-      const session = await createSession(user.id, user.username, user.role);
+      const session = await createSession(user.id, user.username, user.role, user.allowedBrands || []);
       return { success: true, user: session };
     }
     return { success: false, error: 'Invalid credentials' };
