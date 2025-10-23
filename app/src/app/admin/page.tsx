@@ -74,30 +74,6 @@ export default function AdminDashboard() {
     checkSession();
   }, [router]);
 
-  // 로그아웃 함수
-  const handleLogout = async () => {
-    try {
-      await fetch('/api/logout', { method: 'POST' });
-      router.push('/login');
-    } catch (error) {
-      console.error('Logout error:', error);
-    }
-  };
-
-  // 로딩 중이면 로딩 화면 표시
-  if (isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-lg">Loading...</div>
-      </div>
-    );
-  }
-
-  // 사용자가 없으면 아무것도 렌더링하지 않음 (리다이렉트 중)
-  if (!user) {
-    return null;
-  }
-
   // 콘솔 로그가 추가될 때마다 자동 스크롤
   useEffect(() => {
     if (showConsole && consoleLogs.length > 0) {
@@ -123,6 +99,30 @@ export default function AdminDashboard() {
       fetchExecutionLogs();
     }
   }, [user]);
+
+  // 로그아웃 함수
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/logout', { method: 'POST' });
+      router.push('/login');
+    } catch (error) {
+      console.error('Logout error:', error);
+    }
+  };
+
+  // 로딩 중이면 로딩 화면 표시
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-lg">Loading...</div>
+      </div>
+    );
+  }
+
+  // 사용자가 없으면 아무것도 렌더링하지 않음 (리다이렉트 중)
+  if (!user) {
+    return null;
+  }
 
   const handleBrandToggle = (brand: string) => {
     setSelectedBrands(prev => 
@@ -215,15 +215,6 @@ export default function AdminDashboard() {
     setIsPolling(false);
     addConsoleLog('⏹️ GitHub Actions 상태 모니터링 중지');
   };
-
-  // 컴포넌트 언마운트 시 폴링 중지
-  useEffect(() => {
-    return () => {
-      if (pollingInterval) {
-        clearInterval(pollingInterval);
-      }
-    };
-  }, [pollingInterval]);
 
   const fetchExecutionLogs = async () => {
     try {
