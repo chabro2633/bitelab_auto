@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
-import { authOptions } from '../../auth/[...nextauth]/route';
+import { authOptions } from '../../../lib/auth-config';
 import { updateUserBrands } from '../../../../lib/auth';
 
 export async function POST(request: NextRequest) {
