@@ -1,7 +1,6 @@
 import bcrypt from 'bcryptjs';
 import fs from 'fs';
 import path from 'path';
-import { kv } from '@vercel/kv';
 
 export interface User {
   id: string;
