@@ -112,9 +112,32 @@ export async function saveUsers(users: User[]): Promise<void> {
     const data = JSON.stringify({ users }, null, 2);
     fs.writeFileSync(USERS_FILE, data, 'utf8');
     console.log('Users saved successfully');
+    
+    // 백업 파일도 자동으로 업데이트
+    await updateBackupFile(users);
   } catch (error) {
     console.error('Error saving users:', error);
     throw new Error(`Failed to save users: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+}
+
+// 백업 파일 자동 업데이트 함수
+async function updateBackupFile(users: User[]): Promise<void> {
+  try {
+    const backupFile = path.join(process.cwd(), 'src/lib/users-backup.json');
+    const backupData = JSON.stringify({ users }, null, 2);
+    
+    // 백업 파일 디렉토리 확인 및 생성
+    const backupDir = path.dirname(backupFile);
+    if (!fs.existsSync(backupDir)) {
+      fs.mkdirSync(backupDir, { recursive: true });
+    }
+    
+    fs.writeFileSync(backupFile, backupData, 'utf8');
+    console.log('Backup file updated successfully');
+  } catch (error) {
+    console.error('Error updating backup file:', error);
+    // 백업 파일 업데이트 실패는 치명적이지 않으므로 에러를 던지지 않음
   }
 }
 
