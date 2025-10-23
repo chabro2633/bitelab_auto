@@ -12,6 +12,7 @@ declare module 'next-auth' {
   }
 
   interface User {
+    id: string;
     username: string;
     role: string;
     allowedBrands?: string[];
