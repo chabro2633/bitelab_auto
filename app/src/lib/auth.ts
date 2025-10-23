@@ -42,9 +42,8 @@ export async function verifyPassword(password: string, hashedPassword: string): 
 
 export async function getUsers(): Promise<User[]> {
   try {
-    // 임시로 모든 환경에서 파일 시스템 사용 (KV 설정 문제로 인해)
     if (!fs.existsSync(USERS_FILE)) {
-      initializeProductionUsers();
+      await initializeUsers();
     }
     
     const data = fs.readFileSync(USERS_FILE, 'utf8');
@@ -56,34 +55,50 @@ export async function getUsers(): Promise<User[]> {
   }
 }
 
-function initializeProductionUsers(): void {
+async function initializeUsers(): Promise<void> {
   try {
-    console.log('Initializing production users data...');
+    console.log('Initializing users data...');
     
-    // 기본 사용자 데이터 생성
-    const defaultUsers = [
-      {
-        id: "admin",
-        username: "admin",
-        password: "$2b$10$3HQpehcWiR7OkStPA5iT6OBveKnqDingWeAYNhds6baUGqlOrlWie", // admin123
-        role: "admin",
-        allowedBrands: [],
-        isFirstLogin: false,
-        createdAt: "2024-01-01T00:00:00.000Z"
-      }
-    ];
+    // 백업 파일이 있으면 복원, 없으면 기본 사용자 생성
+    const backupFile = path.join(process.cwd(), 'src/lib/users-backup.json');
+    let defaultUsers;
+    
+    if (fs.existsSync(backupFile)) {
+      console.log('Restoring users from backup file...');
+      const backupData = fs.readFileSync(backupFile, 'utf8');
+      const backupParsed = JSON.parse(backupData);
+      defaultUsers = backupParsed.users || [];
+    } else {
+      console.log('Creating default users...');
+      defaultUsers = [
+        {
+          id: "admin",
+          username: "admin",
+          password: "$2b$10$3HQpehcWiR7OkStPA5iT6OBveKnqDingWeAYNhds6baUGqlOrlWie", // admin123
+          role: "admin",
+          allowedBrands: [],
+          createdAt: "2024-01-01T00:00:00.000Z"
+        }
+      ];
+    }
+    
+    // 디렉토리가 존재하는지 확인하고 생성
+    const dir = path.dirname(USERS_FILE);
+    if (!fs.existsSync(dir)) {
+      console.log('Creating directory:', dir);
+      fs.mkdirSync(dir, { recursive: true });
+    }
     
     const data = JSON.stringify({ users: defaultUsers }, null, 2);
     fs.writeFileSync(USERS_FILE, data, 'utf8');
-    console.log('Production users initialized successfully');
+    console.log('Users initialized successfully');
   } catch (error) {
-    console.error('Error initializing production users:', error);
+    console.error('Error initializing users:', error);
   }
 }
 
 export async function saveUsers(users: User[]): Promise<void> {
   try {
-    // 임시로 모든 환경에서 파일 시스템 사용 (KV 설정 문제로 인해)
     console.log('Saving users to:', USERS_FILE);
     console.log('Current working directory:', process.cwd());
     
