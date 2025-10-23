@@ -1,16 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  experimental: {
-    appDir: true,
-  },
-  async rewrites() {
-    return [
-      {
-        source: '/api/auth/:path*',
-        destination: '/api/auth/:path*',
-      },
-    ];
-  },
+  // Next.js App Router는 자동으로 API 라우트를 처리합니다
 };
 
 module.exports = nextConfig;
