@@ -8,7 +8,6 @@ export interface User {
   password: string;
   role: string;
   allowedBrands?: string[]; // 접근 가능한 브랜드 목록 (admin은 모든 브랜드 접근 가능)
-  isFirstLogin?: boolean; // 최초 로그인 여부
   createdAt: string;
 }
 
@@ -116,7 +115,7 @@ export async function authenticateUser(username: string, password: string): Prom
   return isValid ? user : null;
 }
 
-export async function createUser(username: string, password: string = 'bitelab', role: string = 'user', allowedBrands: string[] = []): Promise<User> {
+export async function createUser(username: string, password: string, role: string = 'user', allowedBrands: string[] = []): Promise<User> {
   const users = await getUsers();
   
   // Check if user already exists
@@ -131,7 +130,6 @@ export async function createUser(username: string, password: string = 'bitelab',
     password: hashedPassword,
     role,
     allowedBrands: role === 'admin' ? [] : allowedBrands, // admin은 빈 배열 (모든 브랜드 접근 가능)
-    isFirstLogin: true, // 모든 새 사용자는 최초 로그인으로 설정
     createdAt: new Date().toISOString()
   };
   
@@ -253,12 +251,3 @@ export function updateExecutionLog(logId: string, updates: Partial<ExecutionLog>
   }
 }
 
-export async function markFirstLoginComplete(userId: string): Promise<void> {
-  const users = await getUsers();
-  const userIndex = users.findIndex(u => u.id === userId);
-  
-  if (userIndex !== -1) {
-    users[userIndex].isFirstLogin = false;
-    await saveUsers(users);
-  }
-}

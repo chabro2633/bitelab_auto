@@ -54,8 +54,6 @@ export default function AdminDashboard() {
   useEffect(() => {
     if (status === 'unauthenticated') {
       router.push('/login');
-    } else if (session && session.user.isFirstLogin) {
-      router.push('/first-login');
     }
   }, [status, session, router]);
 

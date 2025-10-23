@@ -7,7 +7,6 @@ declare module 'next-auth' {
       username: string;
       role: string;
       allowedBrands?: string[];
-      isFirstLogin?: boolean;
     };
   }
 
@@ -16,7 +15,6 @@ declare module 'next-auth' {
     username: string;
     role: string;
     allowedBrands?: string[];
-    isFirstLogin?: boolean;
   }
 }
 
@@ -25,6 +23,5 @@ declare module 'next-auth/jwt' {
     username: string;
     role: string;
     allowedBrands?: string[];
-    isFirstLogin?: boolean;
   }
 }
