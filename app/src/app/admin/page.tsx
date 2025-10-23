@@ -1,9 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { useSession, signOut } from 'next-auth/react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { useEffect } from 'react';
 
 interface ExecutionResult {
   success: boolean;
@@ -14,8 +12,9 @@ interface ExecutionResult {
 }
 
 export default function AdminDashboard() {
-  const { data: session, status } = useSession();
   const router = useRouter();
+  const [user, setUser] = useState<{ userId: string; username: string; role: string } | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
   const [isExecuting, setIsExecuting] = useState(false);
   const [result, setResult] = useState<ExecutionResult | null>(null);
   const [scriptArgs, setScriptArgs] = useState('');
@@ -51,27 +50,54 @@ export default function AdminDashboard() {
   
   const availableBrands = ['바르너', '릴리이브', '보호리', '먼슬리픽', '색동서울'];
 
+  // 세션 확인
   useEffect(() => {
-    if (status === 'unauthenticated') {
-      router.push('/login');
-    }
-  }, [status, session, router]);
-
-  // 사용자 권한에 따라 브랜드 설정
-  useEffect(() => {
-    if (session?.user) {
-      if (session.user.role === 'admin') {
-        // 관리자는 모든 브랜드 접근 가능
-        setUserAllowedBrands(availableBrands);
-        setSelectedBrands(availableBrands);
-      } else {
-        // 일반 사용자는 할당된 브랜드만 접근 가능
-        const allowedBrands = session.user.allowedBrands || [];
-        setUserAllowedBrands(allowedBrands);
-        setSelectedBrands(allowedBrands);
+    const checkSession = async () => {
+      try {
+        const response = await fetch('/api/session');
+        const data = await response.json();
+        
+        if (data.authenticated) {
+          setUser(data.user);
+          setUserAllowedBrands(data.user.role === 'admin' ? availableBrands : data.user.allowedBrands || []);
+        } else {
+          router.push('/login');
+        }
+      } catch (error) {
+        console.error('Session check error:', error);
+        router.push('/login');
+      } finally {
+        setIsLoading(false);
       }
+    };
+
+    checkSession();
+  }, [router]);
+
+  // 로그아웃 함수
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/logout', { method: 'POST' });
+      router.push('/login');
+    } catch (error) {
+      console.error('Logout error:', error);
     }
-  }, [session]);
+  };
+
+  // 로딩 중이면 로딩 화면 표시
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-lg">Loading...</div>
+      </div>
+    );
+  }
+
+  // 사용자가 없으면 아무것도 렌더링하지 않음 (리다이렉트 중)
+  if (!user) {
+    return null;
+  }
+
 
   // 콘솔 로그가 추가될 때마다 자동 스크롤
   useEffect(() => {
@@ -281,21 +307,11 @@ export default function AdminDashboard() {
     }
   };
 
-  const handleLogout = () => {
-    signOut({ callbackUrl: '/login' });
+  const handleLogoutClick = () => {
+    handleLogout();
   };
 
-  if (status === 'loading') {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-lg">Loading...</div>
-      </div>
-    );
-  }
 
-  if (!session) {
-    return null;
-  }
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -305,10 +321,10 @@ export default function AdminDashboard() {
           <div className="flex justify-between items-center py-6">
             <div>
               <h1 className="text-3xl font-bold text-gray-900">Admin Dashboard</h1>
-              <p className="text-sm text-gray-600">Welcome, {session.user.username}</p>
+              <p className="text-sm text-gray-600">Welcome, {user.username}</p>
             </div>
             <div className="flex gap-2">
-              {session.user.role === 'admin' && (
+              {user.role === 'admin' && (
                 <button
                   onClick={() => router.push('/users')}
                   className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-sm font-medium"
@@ -317,7 +333,7 @@ export default function AdminDashboard() {
                 </button>
               )}
               <button
-                onClick={handleLogout}
+                onClick={handleLogoutClick}
                 className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-md text-sm font-medium"
               >
                 Logout

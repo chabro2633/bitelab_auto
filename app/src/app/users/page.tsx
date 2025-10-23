@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useSession, signOut } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 
 interface User {
@@ -13,8 +12,9 @@ interface User {
 }
 
 export default function UserManagement() {
-  const { data: session, status } = useSession();
   const router = useRouter();
+  const [user, setUser] = useState<{ userId: string; username: string; role: string } | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
   const [users, setUsers] = useState<User[]>([]);
   const [showAddForm, setShowAddForm] = useState(false);
   const [showBrandPermissionForm, setShowBrandPermissionForm] = useState(false);
@@ -25,15 +25,39 @@ export default function UserManagement() {
 
   const availableBrands = ['바르너', '릴리이브', '보호리', '먼슬리픽', '색동서울'];
 
+  // 세션 확인
   useEffect(() => {
-    if (status === 'unauthenticated') {
+    const checkSession = async () => {
+      try {
+        const response = await fetch('/api/session');
+        const data = await response.json();
+        
+        if (data.authenticated && data.user.role === 'admin') {
+          setUser(data.user);
+          fetchUsers();
+        } else {
+          router.push('/admin'); // Admin이 아니면 admin 페이지로 리다이렉트
+        }
+      } catch (error) {
+        console.error('Session check error:', error);
+        router.push('/login');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    checkSession();
+  }, [router]);
+
+  // 로그아웃 함수
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/logout', { method: 'POST' });
       router.push('/login');
-    } else if (session && session.user.role !== 'admin') {
-      router.push('/admin');
-    } else if (session && session.user.role === 'admin') {
-      fetchUsers();
+    } catch (error) {
+      console.error('Logout error:', error);
     }
-  }, [session, status, router]);
+  };
 
   const fetchUsers = async () => {
     try {
@@ -111,11 +135,12 @@ export default function UserManagement() {
     }
   };
 
-  const handleLogout = async () => {
-    await signOut({ callbackUrl: '/login' });
+  const handleLogoutClick = async () => {
+    await handleLogout();
   };
 
-  if (status === 'loading') {
+  // 로딩 중이면 로딩 화면 표시
+  if (isLoading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
@@ -126,7 +151,8 @@ export default function UserManagement() {
     );
   }
 
-  if (!session || session.user.role !== 'admin') {
+  // 사용자가 없으면 아무것도 렌더링하지 않음 (리다이렉트 중)
+  if (!user) {
     return null;
   }
 
@@ -144,7 +170,7 @@ export default function UserManagement() {
                 관리자 페이지로
               </button>
               <button
-                onClick={handleLogout}
+                onClick={handleLogoutClick}
                 className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-md text-sm font-medium"
               >
                 로그아웃

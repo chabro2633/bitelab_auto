@@ -1,7 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import { signIn } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 
 export default function LoginPage() {
@@ -17,23 +16,25 @@ export default function LoginPage() {
     setLoginError('');
 
     try {
-      const result = await signIn('credentials', {
-        username,
-        password,
-        redirect: false,
+      const response = await fetch('/api/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ username, password }),
       });
 
-      if (result?.error) {
-        console.error('Login error:', result.error);
-        setLoginError('Invalid username or password');
-      } else if (result?.ok) {
+      const data = await response.json();
+
+      if (data.success) {
         console.log('Login successful, redirecting to admin');
         router.push('/admin');
       } else {
-        console.error('Unexpected login result:', result);
-        setLoginError('An unexpected error occurred');
+        console.error('Login error:', data.error);
+        setLoginError(data.error || 'Invalid username or password');
       }
-    } catch (loginError) {
+    } catch (error) {
+      console.error('Login request error:', error);
       setLoginError('An error occurred during login');
     } finally {
       setLoading(false);
