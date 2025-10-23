@@ -1,5 +1,4 @@
 import { cookies } from 'next/headers';
-import { NextRequest, NextResponse } from 'next/server';
 import { authenticateUser } from './auth';
 
 // 세션 생성

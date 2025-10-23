@@ -98,7 +98,6 @@ export default function AdminDashboard() {
     return null;
   }
 
-
   // 콘솔 로그가 추가될 때마다 자동 스크롤
   useEffect(() => {
     if (showConsole && consoleLogs.length > 0) {
@@ -108,6 +107,22 @@ export default function AdminDashboard() {
       }
     }
   }, [consoleLogs, showConsole]);
+
+  // 컴포넌트 언마운트 시 폴링 중지
+  useEffect(() => {
+    return () => {
+      if (pollingInterval) {
+        clearInterval(pollingInterval);
+      }
+    };
+  }, [pollingInterval]);
+
+  // 컴포넌트 마운트 시 실행 로그 가져오기
+  useEffect(() => {
+    if (user) {
+      fetchExecutionLogs();
+    }
+  }, [user]);
 
   const handleBrandToggle = (brand: string) => {
     setSelectedBrands(prev => 
@@ -222,12 +237,6 @@ export default function AdminDashboard() {
     }
   };
 
-  // 컴포넌트 마운트 시 실행 로그 가져오기
-  useEffect(() => {
-    if (session?.user) {
-      fetchExecutionLogs();
-    }
-  }, [session]);
 
   const abortScript = () => {
     if (abortController) {
@@ -367,7 +376,7 @@ export default function AdminDashboard() {
                 <div className="mb-6">
                   <label className="block text-sm font-medium text-gray-700 mb-3">
                     브랜드 선택 (선택사항)
-                    {session?.user.role !== 'admin' && (
+                    {user.role !== 'admin' && (
                       <span className="text-sm text-gray-500 ml-2">
                         (권한이 있는 브랜드만 표시됩니다)
                       </span>
@@ -408,7 +417,7 @@ export default function AdminDashboard() {
                     )}
                   </div>
                         <p className="mt-2 text-xs text-gray-500">
-                          {session?.user.role === 'admin' 
+                          {user.role === 'admin' 
                             ? '기본적으로 모든 브랜드가 선택되어 있습니다. 원하지 않는 브랜드는 체크를 해제하세요.'
                             : '권한이 있는 브랜드만 선택할 수 있습니다.'
                           }
