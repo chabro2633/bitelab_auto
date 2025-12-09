@@ -1,9 +1,9 @@
 name: Cigro Data Scraping
 
 on:
-  # 매일 오전 8시 (한국시간)에 자동 실행
+  # 매일 오전 7시 20분 (한국시간)에 자동 실행
   schedule:
-    - cron: '0 23 * * *'  # UTC 기준 23시 (한국시간 오전 8시)
+    - cron: '20 22 * * *'  # UTC 기준 22:20 (한국시간 오전 7시 20분)
   
   # 수동 실행 가능
   workflow_dispatch:
@@ -30,67 +30,34 @@ jobs:
       with:
         python-version: '3.11'
         
-    - name: Install system dependencies
-      run: |
-        # 캐시된 패키지 목록 사용으로 업데이트 시간 단축
-        sudo apt-get update -o Acquire::Check-Valid-Until=false -o Acquire::Check-Date=false
-        # 필요한 패키지만 설치 (wget, gnupg는 이미 기본 설치됨)
-        sudo apt-get install -y --no-install-recommends ca-certificates
-        
-    - name: Cache Python dependencies
-      uses: actions/cache@v3
-      with:
-        path: ~/.cache/pip
-        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-        restore-keys: |
-          ${{ runner.os }}-pip-
-          
-    - name: Cache Playwright browsers
-      uses: actions/cache@v3
-      with:
-        path: |
-          ~/.cache/ms-playwright
-          ~/.local/share/ms-playwright
-        key: ${{ runner.os }}-playwright-browsers-v1
-        restore-keys: |
-          ${{ runner.os }}-playwright-browsers-
-          ${{ runner.os }}-playwright-
-          
     - name: Install Python dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install --cache-dir ~/.cache/pip -r requirements.txt
+        pip install -r requirements.txt
         
-    - name: Install Playwright browsers (cached)
-      run: |
-        # Playwright 브라우저 설치 (캐시 확인 후)
-        if [ ! -d ~/.cache/ms-playwright/chromium-* ]; then
-          echo "Playwright 브라우저 캐시가 없습니다. 설치 중..."
-          playwright install chromium --with-deps
-          echo "✅ Playwright 브라우저 설치 완료"
-        else
-          echo "✅ Playwright 브라우저 캐시를 사용합니다."
-          # 캐시된 브라우저가 제대로 작동하는지 확인
-          playwright install-deps chromium
-        fi
+    - name: Cache Playwright browsers
+      id: playwright-cache
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/ms-playwright
+        key: ${{ runner.os }}-playwright-${{ hashFiles('**/requirements.txt') }}
+
+    - name: Install Playwright browsers
+      if: steps.playwright-cache.outputs.cache-hit != 'true'
+      run: playwright install chromium --with-deps
+
+    - name: Install Playwright deps only
+      if: steps.playwright-cache.outputs.cache-hit == 'true'
+      run: playwright install-deps chromium
         
     - name: Create Google Sheets credentials
+      env:
+        GOOGLE_SHEETS_CREDENTIALS: ${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}
       run: |
-        # JSON 파일을 더 안전하게 생성
-        cat > google_sheet_credentials.json << 'EOF'
-        ${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}
-        EOF
-        
-        # 파일 내용 확인 (디버깅용)
-        echo "생성된 JSON 파일 크기: $(wc -c < google_sheet_credentials.json)"
-        echo "JSON 파일 첫 100자:"
-        head -c 100 google_sheet_credentials.json
-        echo ""
-        echo "JSON 파일 마지막 100자:"
-        tail -c 100 google_sheet_credentials.json
-        echo ""
-        
-        # JSON 형식 검증 (더 안전한 방식)
+        # JSON 파일 생성 (환경변수에서)
+        echo "$GOOGLE_SHEETS_CREDENTIALS" > google_sheet_credentials.json
+
+        # JSON 형식 검증
         python3 -c "
         import json
         import sys
@@ -99,10 +66,8 @@ jobs:
                 data = json.load(f)
             print('✅ JSON 형식이 올바릅니다.')
             print(f'✅ 프로젝트 ID: {data.get(\"project_id\", \"N/A\")}')
-            print(f'✅ 클라이언트 이메일: {data.get(\"client_email\", \"N/A\")}')
         except json.JSONDecodeError as e:
             print(f'❌ JSON 파싱 오류: {e}')
-            print(f'❌ 오류 위치: 라인 {e.lineno}, 컬럼 {e.colno}')
             sys.exit(1)
         except Exception as e:
             print(f'❌ 기타 오류: {e}')

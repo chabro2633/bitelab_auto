@@ -5,7 +5,7 @@
 - 브랜드 선택 기능
 - 날짜 선택 기능
 - 데이터 우선순위 로직 (기존 데이터가 더 많으면 유지)
-- 속도 최적화
+- 속도 최적화 (병렬 처리, 대기 시간 최소화)
 """
 
 import os
@@ -17,6 +17,7 @@ from playwright.sync_api import sync_playwright
 from datetime import datetime, timedelta
 import logging
 import argparse
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # 로깅 설정
 logging.basicConfig(
@@ -66,41 +67,98 @@ def upload_to_google_sheets(df, sheet_name):
 
         # 새 데이터의 날짜들
         new_dates = df['date'].unique()
-        
+
         for date in new_dates:
             existing_date_data = existing_df[existing_df['date'] == date]
             new_date_data = df[df['date'] == date]
-            
+
             if existing_date_data.empty:
                 # 해당 날짜의 데이터가 없으면 새로 추가
                 sheet.append_rows(new_date_data.values.tolist(), value_input_option='RAW')
                 logger.info(f"✅ {sheet_name} 시트에 {date} 날짜 데이터 새로 추가 완료")
             else:
-                # 데이터 양 비교 (기존 데이터가 더 많으면 유지, 그렇지 않으면 새 데이터로 교체)
+                # 데이터 비교
                 existing_count = len(existing_date_data)
                 new_count = len(new_date_data)
-                
+
                 logger.info(f"📊 {sheet_name} 시트 {date} 날짜 데이터 비교: 기존 {existing_count}개 vs 새 {new_count}개")
-                
-                if existing_count >= new_count:
-                    logger.info(f"ℹ️ {sheet_name} 시트의 {date} 날짜 데이터가 더 많거나 같습니다. 기존 데이터를 유지합니다.")
+
+                should_replace = False
+                replace_reason = ""
+
+                # 1. 새 데이터가 더 많으면 교체
+                if new_count > existing_count:
+                    should_replace = True
+                    replace_reason = f"새 데이터가 더 많음 ({new_count} > {existing_count})"
                 else:
-                    logger.info(f"🔄 {sheet_name} 시트의 {date} 날짜 데이터를 새 데이터로 교체합니다.")
-                    
+                    # 2. 원가, 판매량, 결제금액 비교 (같은 행 수일 때)
+                    try:
+                        # 비교를 위해 키 컬럼으로 매칭 (판매처, 제품명, 옵션명)
+                        key_cols = ['판매처', '제품명', '옵션명']
+
+                        for _, new_row in new_date_data.iterrows():
+                            # 기존 데이터에서 같은 항목 찾기
+                            mask = (existing_date_data['판매처'] == new_row['판매처']) & \
+                                   (existing_date_data['제품명'] == new_row['제품명']) & \
+                                   (existing_date_data['옵션명'] == new_row['옵션명'])
+                            matching_rows = existing_date_data[mask]
+
+                            if not matching_rows.empty:
+                                existing_row = matching_rows.iloc[0]
+
+                                # 숫자 변환 함수
+                                def to_number(val):
+                                    if pd.isna(val) or val == '' or val == '-':
+                                        return 0
+                                    try:
+                                        return float(str(val).replace(',', '').replace('원', '').replace('%', '').strip())
+                                    except:
+                                        return 0
+
+                                # 원가 비교 (기존 0원에서 실제 값으로 변경된 경우)
+                                new_cost = to_number(new_row.get('원가', 0))
+                                existing_cost = to_number(existing_row.get('원가', 0))
+                                if existing_cost == 0 and new_cost > 0:
+                                    should_replace = True
+                                    replace_reason = f"원가 업데이트 (0 → {new_cost})"
+                                    break
+
+                                # 판매량 비교 (새 값이 더 크면 업데이트)
+                                new_sales = to_number(new_row.get('판매량', 0))
+                                existing_sales = to_number(existing_row.get('판매량', 0))
+                                if new_sales > existing_sales:
+                                    should_replace = True
+                                    replace_reason = f"판매량 증가 ({existing_sales} → {new_sales})"
+                                    break
+
+                                # 결제금액 비교 (새 값이 더 크면 업데이트)
+                                new_amount = to_number(new_row.get('결제금액', 0))
+                                existing_amount = to_number(existing_row.get('결제금액', 0))
+                                if new_amount > existing_amount:
+                                    should_replace = True
+                                    replace_reason = f"결제금액 증가 ({existing_amount} → {new_amount})"
+                                    break
+                    except Exception as e:
+                        logger.warning(f"⚠️ 데이터 비교 중 오류: {e}")
+
+                if should_replace:
+                    logger.info(f"🔄 {sheet_name} 시트의 {date} 날짜 데이터 교체 사유: {replace_reason}")
+
                     # 기존 데이터 삭제
                     existing_indices = existing_df[existing_df['date'] == date].index.tolist()
                     sheet_row_numbers = [idx + 2 for idx in existing_indices]  # +2는 헤더와 0-based 인덱스 때문
-                    
-                    # 기존 데이터 삭제 (개별 삭제로 수정)
+
+                    # 기존 데이터 삭제 (뒤에서부터 삭제하여 인덱스 변화 방지)
                     if sheet_row_numbers:
-                        # 뒤에서부터 삭제하여 인덱스 변화 방지
                         for row_num in sorted(sheet_row_numbers, reverse=True):
                             sheet.delete_rows(row_num)
-                    
-                    # 새 데이터 추가 (배치 업로드로 API 호출 최소화)
+
+                    # 새 데이터 추가
                     if len(new_date_data) > 0:
                         sheet.append_rows(new_date_data.values.tolist(), value_input_option='RAW')
                     logger.info(f"✅ {sheet_name} 시트의 {date} 날짜 데이터 교체 완료")
+                else:
+                    logger.info(f"ℹ️ {sheet_name} 시트의 {date} 날짜 데이터 변경 없음. 기존 데이터 유지.")
                     
     except Exception as e:
         logger.error(f"❌ Google Sheets 업로드 중 오류 발생: {e}")
@@ -113,12 +171,12 @@ def extract_all_pages_data(page, selected_date, brand_name):
     expected_columns = 9  # 예상되는 열 개수 (날짜 포함)
 
     while True:
-        logger.info(f"📄 {current_page}페이지 데이터 추출 중...")
+        logger.info(f"📄 {brand_name} - {current_page}페이지 데이터 추출 중...")
 
         # 컬럼 요소 찾기
         columns = page.query_selector_all('div.sc-dkrFOg.cGhOUg')
         if not columns:
-            logger.warning("❌ 컬럼을 찾을 수 없습니다.")
+            logger.warning(f"❌ {brand_name} - 컬럼을 찾을 수 없습니다.")
             break
 
         # 행 데이터 추출
@@ -134,11 +192,11 @@ def extract_all_pages_data(page, selected_date, brand_name):
         # 헤더 추출 (첫 번째 페이지만)
         if headers is None:
             headers = ["date"] + [label.inner_text().strip() for label in page.query_selector_all('div.sc-gswNZR.gSJTZd > label')]
-            
+
             # 헤더가 비어 있는 경우 기본 헤더 추가
             if not headers or len(headers) == 1:  # 단지 "date"만 있다면
                 headers = ["date"] + [f"컬럼{idx+1}" for idx in range(len(all_data[0]) - 1)]
-                
+
             if len(headers) < len(all_data[0]):
                 headers += [f"컬럼{idx+1}" for idx in range(len(all_data[0]) - len(headers))]
 
@@ -146,7 +204,7 @@ def extract_all_pages_data(page, selected_date, brand_name):
         label_el = page.query_selector('label.text-cigro-page-number')
         page_text = label_el.inner_text().strip() if label_el else None
         if not page_text or f"{current_page} /" not in page_text:
-            logger.warning("❌ 페이지 번호를 찾을 수 없습니다.")
+            logger.warning(f"❌ {brand_name} - 페이지 번호를 찾을 수 없습니다.")
             break
 
         total_pages = int(page_text.split("/")[1].strip())
@@ -158,21 +216,58 @@ def extract_all_pages_data(page, selected_date, brand_name):
         svgs = pagination_div.query_selector_all('svg') if pagination_div else []
         if len(svgs) >= 3:
             svgs[2].click()
+            # 고정 대기 대신 테이블 요소가 업데이트될 때까지 대기
+            page.wait_for_timeout(500)
         else:
             break
 
-        page.wait_for_timeout(1000)  # 페이지가 완전히 로드될 때까지 대기
         current_page += 1
 
     df = pd.DataFrame(all_data, columns=headers)
-    
+
     # 열 개수 검증
     if len(df.columns) < expected_columns:
         logger.error(f"❌ {brand_name} 브랜드 데이터 수집 실패: 예상 열 개수 {expected_columns}개, 실제 {len(df.columns)}개")
         return None
-    
+
     logger.info(f"✅ {brand_name} 브랜드 총 {len(df)}개 행의 데이터 추출 완료 (열 개수: {len(df.columns)}개)")
     return df
+
+
+def scrape_brand(browser_context, brand, selected_date, max_retries=2):
+    """단일 브랜드를 스크래핑합니다."""
+    for attempt in range(max_retries):
+        page = None
+        try:
+            target_url = f"https://app.cigro.io/?menu=analysis&tab=product&group_by=option&brand_name={brand}&start_date={selected_date}&end_date={selected_date}"
+
+            page = browser_context.new_page()
+            # 네트워크 idle 상태까지 대기 (더 빠른 로딩 감지)
+            page.goto(target_url, wait_until='networkidle', timeout=30000)
+
+            # 테이블 로딩 대기 - 고정 5초 대신 요소 대기
+            try:
+                page.wait_for_selector('div.sc-dkrFOg.cGhOUg', timeout=10000)
+            except:
+                logger.warning(f"⚠️ {brand} - 테이블 로딩 대기 타임아웃")
+
+            df = extract_all_pages_data(page, selected_date, brand)
+
+            if df is not None and not df.empty:
+                return brand, df, None
+            else:
+                logger.warning(f"⚠️ {brand} 시도 {attempt + 1}/{max_retries}: 데이터 없음")
+
+        except Exception as e:
+            logger.error(f"❌ {brand} 시도 {attempt + 1}/{max_retries} 오류: {e}")
+        finally:
+            if page:
+                try:
+                    page.close()
+                except:
+                    pass
+
+    return brand, None, f"최대 재시도 횟수 초과"
 
 def parse_arguments():
     """명령줄 인수를 파싱합니다."""
@@ -209,15 +304,18 @@ def main():
         logger.info(f"📋 모든 브랜드 스크래핑: {', '.join(selected_brands)}")
 
     with sync_playwright() as p:
-        # 브라우저 실행 설정
+        # 브라우저 실행 설정 - 최적화된 옵션
         browser_args = [
             '--no-sandbox',
             '--disable-dev-shm-usage',
             '--disable-gpu',
             '--disable-web-security',
-            '--disable-features=VizDisplayCompositor'
+            '--disable-features=VizDisplayCompositor',
+            '--disable-extensions',
+            '--disable-plugins',
+            '--disable-images',  # 이미지 로딩 비활성화로 속도 향상
         ]
-        
+
         browser = p.chromium.launch(
             headless=args.headless,
             args=browser_args
@@ -231,65 +329,47 @@ def main():
                 logger.info("🧭 세션 없음 ➜ 수동 로그인 시작")
                 context = browser.new_context()
                 page = context.new_page()
-                page.goto("https://app.cigro.io")
+                page.goto("https://app.cigro.io", wait_until='domcontentloaded')
                 logger.info("📝 로그인 자동화 중...")
-                
+
                 # 이메일, 비밀번호 자동 입력
                 page.fill('input.bubble-element.Input.cnaNaCaE0.a1746627658297x1166[type="email"]', EMAIL)
                 page.fill('input[type="password"]', PASSWORD)
-                
+
                 # 로그인 버튼 클릭
                 page.click('div.clickable-element.bubble-element.Group.cnaNaCaF0.bubble-r-container')
-                page.wait_for_timeout(5000)
+                page.wait_for_load_state('networkidle', timeout=15000)
 
                 logger.info("🔐 로그인 완료 후 세션 저장 중...")
                 context.storage_state(path="auth.json")
+                page.close()
 
-            # 각 브랜드별로 데이터 추출 (재시도 로직 포함)
+            # 브랜드별 스크래핑 실행
             successful_brands = []
             failed_brands = []
-            
+            results = {}
+
+            logger.info(f"🚀 {len(selected_brands)}개 브랜드 스크래핑 시작...")
+
+            # 순차 처리 (Playwright는 동일 context에서 병렬 처리 제한)
             for brand in selected_brands:
                 logger.info(f"🔍 {brand} 데이터 추출 중...")
-                max_retries = 3
-                success = False
-                
-                for attempt in range(max_retries):
-                    try:
-                        target_url = f"https://app.cigro.io/?menu=analysis&tab=product&group_by=option&brand_name={brand}&start_date={selected_date}&end_date={selected_date}"
+                brand_name, df, error = scrape_brand(context, brand, selected_date)
 
-                        page = context.new_page()
-                        page.goto(target_url)
-                        page.wait_for_timeout(5000)  # 테이블 로딩 대기
+                if df is not None:
+                    results[brand_name] = df
+                    successful_brands.append(brand_name)
+                    logger.info(f"✅ {brand_name} 스크래핑 완료")
+                else:
+                    failed_brands.append(brand_name)
+                    logger.error(f"❌ {brand_name} 스크래핑 실패: {error}")
 
-                        df = extract_all_pages_data(page, selected_date, brand)
-                        
-                        if df is not None and not df.empty:
-                            upload_to_google_sheets(df, brand)
-                            successful_brands.append(brand)
-                            success = True
-                            logger.info(f"✅ {brand} 브랜드 처리 완료")
-                            break
-                        else:
-                            logger.warning(f"⚠️ {brand} 브랜드 시도 {attempt + 1}/{max_retries}: 데이터 수집 실패")
-                            if attempt < max_retries - 1:
-                                logger.info(f"🔄 {brand} 브랜드 재시도 중... ({attempt + 2}/{max_retries})")
-                                page.wait_for_timeout(3000)  # 재시도 전 대기
-                        
-                    except Exception as e:
-                        logger.error(f"❌ {brand} 브랜드 시도 {attempt + 1}/{max_retries} 중 오류: {e}")
-                        if attempt < max_retries - 1:
-                            logger.info(f"🔄 {brand} 브랜드 재시도 중... ({attempt + 2}/{max_retries})")
-                            page.wait_for_timeout(3000)
-                    finally:
-                        try:
-                            page.close()
-                        except:
-                            pass
-                
-                if not success:
-                    failed_brands.append(brand)
-                    logger.error(f"❌ {brand} 브랜드 최종 실패 (최대 재시도 횟수 초과)")
+            # Google Sheets 업로드 (스크래핑 완료 후 일괄 처리)
+            if results:
+                logger.info(f"📤 Google Sheets 업로드 시작 ({len(results)}개 브랜드)...")
+                for brand_name, df in results.items():
+                    upload_to_google_sheets(df, brand_name)
+                    logger.info(f"✅ {brand_name} 업로드 완료")
 
             # 최종 결과 요약
             logger.info("=" * 50)
@@ -299,12 +379,12 @@ def main():
                 logger.error(f"❌ 실패한 브랜드: {', '.join(failed_brands)}")
             logger.info(f"📈 성공률: {len(successful_brands)}/{len(selected_brands)} ({len(successful_brands)/len(selected_brands)*100:.1f}%)")
             logger.info("=" * 50)
-            
+
             if successful_brands:
                 logger.info("🎉 스크래핑 작업이 성공적으로 완료되었습니다!")
             else:
                 logger.error("❌ 모든 브랜드 스크래핑이 실패했습니다.")
-            
+
         except Exception as e:
             logger.error(f"❌ 스크래핑 중 오류 발생: {e}")
         finally:

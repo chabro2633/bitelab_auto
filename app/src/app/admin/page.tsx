@@ -47,7 +47,20 @@ export default function AdminDashboard() {
     workflowUrl?: string;
   }>>([]);
   const [showExecutionLogs, setShowExecutionLogs] = useState(false);
-  
+  const [scheduleStatus, setScheduleStatus] = useState<{
+    scheduleStatus: 'pending' | 'running' | 'success' | 'failed' | 'waiting';
+    statusMessage: string;
+    scheduledTime: string;
+    todayScheduledRun?: {
+      id: string;
+      status: string;
+      conclusion: string;
+      created_at: string;
+      html_url: string;
+    } | null;
+  } | null>(null);
+  const [scheduleLoading, setScheduleLoading] = useState(true);
+
   const availableBrands = ['바르너', '릴리이브', '보호리', '먼슬리픽', '색동서울'];
 
   // 세션 확인
@@ -97,8 +110,25 @@ export default function AdminDashboard() {
   useEffect(() => {
     if (user) {
       fetchExecutionLogs();
+      fetchScheduleStatus();
     }
   }, [user]);
+
+  // 스케줄 상태 가져오기
+  const fetchScheduleStatus = async () => {
+    try {
+      setScheduleLoading(true);
+      const response = await fetch('/api/schedule-status');
+      if (response.ok) {
+        const data = await response.json();
+        setScheduleStatus(data);
+      }
+    } catch (error) {
+      console.error('Failed to fetch schedule status:', error);
+    } finally {
+      setScheduleLoading(false);
+    }
+  };
 
   // 로그아웃 함수
   const handleLogout = async () => {
@@ -345,6 +375,99 @@ export default function AdminDashboard() {
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+        {/* Schedule Status Banner */}
+        <div className="px-4 mb-4 sm:px-0">
+          {scheduleLoading ? (
+            <div className="bg-gray-100 border border-gray-200 rounded-lg p-4 animate-pulse">
+              <div className="h-5 bg-gray-200 rounded w-1/3"></div>
+            </div>
+          ) : scheduleStatus ? (
+            <div className={`rounded-lg p-4 border ${
+              scheduleStatus.scheduleStatus === 'success'
+                ? 'bg-green-50 border-green-200'
+                : scheduleStatus.scheduleStatus === 'failed'
+                ? 'bg-red-50 border-red-200'
+                : scheduleStatus.scheduleStatus === 'running'
+                ? 'bg-blue-50 border-blue-200'
+                : scheduleStatus.scheduleStatus === 'waiting'
+                ? 'bg-yellow-50 border-yellow-200'
+                : 'bg-gray-50 border-gray-200'
+            }`}>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <span className="text-2xl">
+                    {scheduleStatus.scheduleStatus === 'success' && '✅'}
+                    {scheduleStatus.scheduleStatus === 'failed' && '❌'}
+                    {scheduleStatus.scheduleStatus === 'running' && '🔄'}
+                    {scheduleStatus.scheduleStatus === 'waiting' && '⏰'}
+                    {scheduleStatus.scheduleStatus === 'pending' && '⚠️'}
+                  </span>
+                  <div>
+                    <div className={`font-medium ${
+                      scheduleStatus.scheduleStatus === 'success'
+                        ? 'text-green-800'
+                        : scheduleStatus.scheduleStatus === 'failed'
+                        ? 'text-red-800'
+                        : scheduleStatus.scheduleStatus === 'running'
+                        ? 'text-blue-800'
+                        : scheduleStatus.scheduleStatus === 'waiting'
+                        ? 'text-yellow-800'
+                        : 'text-gray-800'
+                    }`}>
+                      오늘의 자동 스크래핑 상태
+                    </div>
+                    <div className={`text-sm ${
+                      scheduleStatus.scheduleStatus === 'success'
+                        ? 'text-green-600'
+                        : scheduleStatus.scheduleStatus === 'failed'
+                        ? 'text-red-600'
+                        : scheduleStatus.scheduleStatus === 'running'
+                        ? 'text-blue-600'
+                        : scheduleStatus.scheduleStatus === 'waiting'
+                        ? 'text-yellow-600'
+                        : 'text-gray-600'
+                    }`}>
+                      {scheduleStatus.statusMessage}
+                    </div>
+                    {scheduleStatus.todayScheduledRun && (
+                      <div className="text-xs text-gray-500 mt-1">
+                        실행 시간: {new Date(scheduleStatus.todayScheduledRun.created_at).toLocaleString('ko-KR')}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  {scheduleStatus.todayScheduledRun && (
+                    <a
+                      href={scheduleStatus.todayScheduledRun.html_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={`text-sm px-3 py-1 rounded-md ${
+                        scheduleStatus.scheduleStatus === 'success'
+                          ? 'bg-green-100 text-green-700 hover:bg-green-200'
+                          : scheduleStatus.scheduleStatus === 'failed'
+                          ? 'bg-red-100 text-red-700 hover:bg-red-200'
+                          : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+                      }`}
+                    >
+                      상세 보기
+                    </a>
+                  )}
+                  <button
+                    onClick={fetchScheduleStatus}
+                    className="text-gray-500 hover:text-gray-700 p-1"
+                    title="새로고침"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null}
+        </div>
+
         <div className="px-4 py-6 sm:px-0">
           <div className="bg-white overflow-hidden shadow rounded-lg">
             <div className="px-4 py-5 sm:p-6">
