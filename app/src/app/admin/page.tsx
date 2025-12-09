@@ -618,7 +618,7 @@ export default function AdminDashboard() {
                     <input
                       type="date"
                       id="start-date"
-                      className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                      className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm text-gray-900"
                       value={startDate}
                       onChange={(e) => setStartDate(e.target.value)}
                     />
@@ -634,7 +634,7 @@ export default function AdminDashboard() {
                     <input
                       type="date"
                       id="end-date"
-                      className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                      className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm text-gray-900"
                       value={endDate}
                       min={startDate}
                       onChange={(e) => setEndDate(e.target.value)}
