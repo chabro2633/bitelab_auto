@@ -10,20 +10,20 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const { date, brands = [] } = await request.json();
-    
+    const { startDate, endDate, brands = [] } = await request.json();
+
     // GitHub Actions 워크플로우 트리거
     const githubToken = process.env.GITHUB_TOKEN;
     const repoOwner = 'chabro2633';
     const repoName = 'bitelab_auto';
-    
+
     if (!githubToken) {
-      return NextResponse.json({ 
-        error: 'GitHub token not configured in environment variables' 
+      return NextResponse.json({
+        error: 'GitHub token not configured in environment variables'
       }, { status: 500 });
     }
-    
-    console.log('Triggering workflow with:', { date, brands, githubToken: githubToken.substring(0, 10) + '...' });
+
+    console.log('Triggering workflow with:', { startDate, endDate, brands, githubToken: githubToken.substring(0, 10) + '...' });
 
     // GitHub Actions 워크플로우 실행 (워크플로우 ID 사용)
     const workflowResponse = await fetch(
@@ -38,7 +38,8 @@ export async function POST(request: NextRequest) {
         body: JSON.stringify({
           ref: 'main',
           inputs: {
-            date: date || '',
+            start_date: startDate || '',
+            end_date: endDate || '',
             brands: brands.join(' ')
           }
         })

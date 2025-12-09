@@ -17,8 +17,8 @@ export default function AdminDashboard() {
   const [isLoading, setIsLoading] = useState(true);
   const [isExecuting, setIsExecuting] = useState(false);
   const [result, setResult] = useState<ExecutionResult | null>(null);
-  const [scriptArgs, setScriptArgs] = useState('');
-  const [selectedDate, setSelectedDate] = useState('');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
   const [selectedBrands, setSelectedBrands] = useState<string[]>([]);
   const [consoleLogs, setConsoleLogs] = useState<string[]>([]);
   const [showConsole, setShowConsole] = useState(false);
@@ -273,25 +273,34 @@ export default function AdminDashboard() {
     setResult(null);
     setShowConsole(true);
     clearConsole();
-    
+
     // AbortController 생성
     const controller = new AbortController();
     setAbortController(controller);
-    
+
     addConsoleLog('🚀 Cigro 데이터 스크래핑 시작');
     addConsoleLog(`📋 선택된 브랜드: ${selectedBrands.length > 0 ? selectedBrands.join(', ') : '모든 브랜드'}`);
-    addConsoleLog(`📅 스크래핑 날짜: ${selectedDate || '어제 날짜'}`);
+
+    // 날짜 범위 표시
+    if (startDate && endDate) {
+      addConsoleLog(`📅 스크래핑 기간: ${startDate} ~ ${endDate}`);
+    } else if (startDate) {
+      addConsoleLog(`📅 스크래핑 날짜: ${startDate}`);
+    } else {
+      addConsoleLog(`📅 스크래핑 날짜: 어제 날짜`);
+    }
 
     try {
       addConsoleLog('📡 GitHub Actions 워크플로우 트리거 중...');
-      
+
       const response = await fetch('/api/trigger-workflow', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          date: selectedDate || undefined,
+          startDate: startDate || undefined,
+          endDate: endDate || undefined,
           brands: selectedBrands.length > 0 ? selectedBrands : undefined,
         }),
         signal: controller.signal,
@@ -540,35 +549,36 @@ export default function AdminDashboard() {
 
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div>
-                    <label htmlFor="selected-date" className="block text-sm font-medium text-gray-700">
-                      스크래핑 날짜 (선택사항)
+                    <label htmlFor="start-date" className="block text-sm font-medium text-gray-700">
+                      시작 날짜 (선택사항)
                     </label>
                     <input
                       type="date"
-                      id="selected-date"
+                      id="start-date"
                       className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                      value={selectedDate}
-                      onChange={(e) => setSelectedDate(e.target.value)}
+                      value={startDate}
+                      onChange={(e) => setStartDate(e.target.value)}
                     />
                     <p className="mt-1 text-xs text-gray-500">
                       비워두면 어제 날짜로 자동 실행됩니다.
                     </p>
                   </div>
-                  
+
                   <div>
-                    <label htmlFor="script-args" className="block text-sm font-medium text-gray-700">
-                      Script Arguments (optional)
+                    <label htmlFor="end-date" className="block text-sm font-medium text-gray-700">
+                      종료 날짜 (선택사항)
                     </label>
                     <input
-                      type="text"
-                      id="script-args"
+                      type="date"
+                      id="end-date"
                       className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                      placeholder="Enter arguments separated by spaces"
-                      value={scriptArgs}
-                      onChange={(e) => setScriptArgs(e.target.value)}
+                      value={endDate}
+                      min={startDate}
+                      onChange={(e) => setEndDate(e.target.value)}
+                      disabled={!startDate}
                     />
                     <p className="mt-1 text-xs text-gray-500">
-                      추가 명령줄 인수가 필요한 경우 입력하세요.
+                      {startDate ? '범위 스크래핑 시 종료 날짜를 선택하세요.' : '시작 날짜를 먼저 선택하세요.'}
                     </p>
                   </div>
                 </div>

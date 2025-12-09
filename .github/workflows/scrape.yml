@@ -8,8 +8,12 @@ on:
   # 수동 실행 가능
   workflow_dispatch:
     inputs:
-      date:
-        description: '스크래핑할 날짜 (YYYY-MM-DD 형식, 비워두면 어제 날짜)'
+      start_date:
+        description: '시작 날짜 (YYYY-MM-DD 형식, 비워두면 어제 날짜)'
+        required: false
+        type: string
+      end_date:
+        description: '종료 날짜 (YYYY-MM-DD 형식, 비워두면 시작 날짜와 동일)'
         required: false
         type: string
       brands:
@@ -79,25 +83,31 @@ jobs:
         EMAIL: ${{ secrets.CIGRO_EMAIL }}
         PASSWORD: ${{ secrets.CIGRO_PASSWORD }}
         GOOGLE_SHEET_NAME: ${{ secrets.GOOGLE_SHEET_NAME }}
-        SCRAPE_DATE: ${{ github.event.inputs.date }}
+        SCRAPE_START_DATE: ${{ github.event.inputs.start_date }}
+        SCRAPE_END_DATE: ${{ github.event.inputs.end_date }}
         SCRAPE_BRANDS: ${{ github.event.inputs.brands }}
       run: |
         python_command="python cigro_yesterday.py"
-        
-        if [ -n "$SCRAPE_DATE" ]; then
-          echo "특정 날짜로 스크래핑: $SCRAPE_DATE"
-          python_command="$python_command --date \"$SCRAPE_DATE\""
+
+        if [ -n "$SCRAPE_START_DATE" ]; then
+          echo "시작 날짜: $SCRAPE_START_DATE"
+          python_command="$python_command --start-date \"$SCRAPE_START_DATE\""
+
+          if [ -n "$SCRAPE_END_DATE" ]; then
+            echo "종료 날짜: $SCRAPE_END_DATE"
+            python_command="$python_command --end-date \"$SCRAPE_END_DATE\""
+          fi
         else
           echo "어제 날짜로 스크래핑"
         fi
-        
+
         if [ -n "$SCRAPE_BRANDS" ]; then
           echo "선택된 브랜드: $SCRAPE_BRANDS"
           python_command="$python_command --brands $SCRAPE_BRANDS"
         else
           echo "모든 브랜드 스크래핑"
         fi
-        
+
         echo "실행 명령어: $python_command"
         eval $python_command
         

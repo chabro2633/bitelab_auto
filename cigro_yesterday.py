@@ -272,29 +272,56 @@ def scrape_brand(browser_context, brand, selected_date, max_retries=2):
 def parse_arguments():
     """명령줄 인수를 파싱합니다."""
     parser = argparse.ArgumentParser(description='Cigro 데이터 스크래핑 스크립트')
-    parser.add_argument('--date', type=str, help='스크래핑할 날짜 (YYYY-MM-DD 형식)')
+    parser.add_argument('--start-date', type=str, help='시작 날짜 (YYYY-MM-DD 형식)')
+    parser.add_argument('--end-date', type=str, help='종료 날짜 (YYYY-MM-DD 형식)')
     parser.add_argument('--brands', type=str, nargs='+', help='스크래핑할 브랜드 목록 (공백으로 구분)')
     parser.add_argument('--headless', action='store_true', default=True, help='헤드리스 모드로 실행')
     return parser.parse_args()
 
+
+def get_date_range(start_date_str, end_date_str):
+    """시작 날짜와 종료 날짜 사이의 모든 날짜를 반환합니다."""
+    dates = []
+
+    if start_date_str:
+        start_date = datetime.strptime(start_date_str, "%Y-%m-%d")
+    else:
+        # 기본값: 어제 날짜
+        start_date = datetime.now() - timedelta(1)
+
+    if end_date_str:
+        end_date = datetime.strptime(end_date_str, "%Y-%m-%d")
+    else:
+        # 종료 날짜가 없으면 시작 날짜와 동일
+        end_date = start_date
+
+    # 시작 날짜가 종료 날짜보다 이후인 경우 스왑
+    if start_date > end_date:
+        start_date, end_date = end_date, start_date
+
+    current_date = start_date
+    while current_date <= end_date:
+        dates.append(current_date.strftime("%Y-%m-%d"))
+        current_date += timedelta(1)
+
+    return dates
+
 def main():
     args = parse_arguments()
-    
+
     logger.info("🚀 Cigro 데이터 스크래핑 시작")
-    
-    # 날짜 설정
-    if args.date:
-        try:
-            selected_date = datetime.strptime(args.date, "%Y-%m-%d").strftime("%Y-%m-%d")
-            logger.info(f"📅 지정된 날짜로 스크래핑: {selected_date}")
-        except ValueError:
-            logger.error(f"❌ 잘못된 날짜 형식: {args.date}. YYYY-MM-DD 형식을 사용하세요.")
-            sys.exit(1)
-    else:
-        yesterday = datetime.now() - timedelta(1)
-        selected_date = yesterday.strftime("%Y-%m-%d")
-        logger.info(f"📅 어제 날짜로 스크래핑: {selected_date}")
-    
+
+    # 날짜 범위 설정
+    try:
+        date_range = get_date_range(args.start_date, args.end_date)
+        if len(date_range) == 1:
+            logger.info(f"📅 스크래핑 날짜: {date_range[0]}")
+        else:
+            logger.info(f"📅 스크래핑 기간: {date_range[0]} ~ {date_range[-1]} ({len(date_range)}일)")
+    except ValueError as e:
+        logger.error(f"❌ 잘못된 날짜 형식입니다. YYYY-MM-DD 형식을 사용하세요. 오류: {e}")
+        sys.exit(1)
+
     # 브랜드 설정
     if args.brands:
         selected_brands = args.brands
@@ -344,46 +371,53 @@ def main():
                 context.storage_state(path="auth.json")
                 page.close()
 
-            # 브랜드별 스크래핑 실행
-            successful_brands = []
-            failed_brands = []
-            results = {}
+            # 날짜별, 브랜드별 스크래핑 실행
+            total_success = 0
+            total_fail = 0
+            all_results = {}  # {brand: [df1, df2, ...]}
 
-            logger.info(f"🚀 {len(selected_brands)}개 브랜드 스크래핑 시작...")
+            logger.info(f"🚀 {len(date_range)}일 x {len(selected_brands)}개 브랜드 스크래핑 시작...")
 
-            # 순차 처리 (Playwright는 동일 context에서 병렬 처리 제한)
-            for brand in selected_brands:
-                logger.info(f"🔍 {brand} 데이터 추출 중...")
-                brand_name, df, error = scrape_brand(context, brand, selected_date)
+            for date_idx, selected_date in enumerate(date_range):
+                logger.info(f"📅 [{date_idx + 1}/{len(date_range)}] {selected_date} 날짜 스크래핑 중...")
 
-                if df is not None:
-                    results[brand_name] = df
-                    successful_brands.append(brand_name)
-                    logger.info(f"✅ {brand_name} 스크래핑 완료")
-                else:
-                    failed_brands.append(brand_name)
-                    logger.error(f"❌ {brand_name} 스크래핑 실패: {error}")
+                for brand in selected_brands:
+                    logger.info(f"🔍 {brand} - {selected_date} 데이터 추출 중...")
+                    brand_name, df, error = scrape_brand(context, brand, selected_date)
 
-            # Google Sheets 업로드 (스크래핑 완료 후 일괄 처리)
-            if results:
-                logger.info(f"📤 Google Sheets 업로드 시작 ({len(results)}개 브랜드)...")
-                for brand_name, df in results.items():
-                    upload_to_google_sheets(df, brand_name)
-                    logger.info(f"✅ {brand_name} 업로드 완료")
+                    if df is not None:
+                        if brand_name not in all_results:
+                            all_results[brand_name] = []
+                        all_results[brand_name].append(df)
+                        total_success += 1
+                        logger.info(f"✅ {brand_name} - {selected_date} 스크래핑 완료")
+                    else:
+                        total_fail += 1
+                        logger.error(f"❌ {brand_name} - {selected_date} 스크래핑 실패: {error}")
+
+            # Google Sheets 업로드 (브랜드별로 모든 날짜 데이터 병합 후 업로드)
+            if all_results:
+                logger.info(f"📤 Google Sheets 업로드 시작 ({len(all_results)}개 브랜드)...")
+                for brand_name, dfs in all_results.items():
+                    # 여러 날짜의 데이터를 하나로 병합
+                    combined_df = pd.concat(dfs, ignore_index=True)
+                    upload_to_google_sheets(combined_df, brand_name)
+                    logger.info(f"✅ {brand_name} 업로드 완료 ({len(dfs)}일치 데이터)")
 
             # 최종 결과 요약
+            total_tasks = len(date_range) * len(selected_brands)
             logger.info("=" * 50)
             logger.info("📊 스크래핑 결과 요약")
-            logger.info(f"✅ 성공한 브랜드: {', '.join(successful_brands) if successful_brands else '없음'}")
-            if failed_brands:
-                logger.error(f"❌ 실패한 브랜드: {', '.join(failed_brands)}")
-            logger.info(f"📈 성공률: {len(successful_brands)}/{len(selected_brands)} ({len(successful_brands)/len(selected_brands)*100:.1f}%)")
+            logger.info(f"📅 스크래핑 기간: {date_range[0]} ~ {date_range[-1]} ({len(date_range)}일)")
+            logger.info(f"📋 스크래핑 브랜드: {', '.join(selected_brands)}")
+            logger.info(f"✅ 성공: {total_success}건 / ❌ 실패: {total_fail}건")
+            logger.info(f"📈 성공률: {total_success}/{total_tasks} ({total_success/total_tasks*100:.1f}%)")
             logger.info("=" * 50)
 
-            if successful_brands:
-                logger.info("🎉 스크래핑 작업이 성공적으로 완료되었습니다!")
+            if total_success > 0:
+                logger.info("🎉 스크래핑 작업이 완료되었습니다!")
             else:
-                logger.error("❌ 모든 브랜드 스크래핑이 실패했습니다.")
+                logger.error("❌ 모든 스크래핑이 실패했습니다.")
 
         except Exception as e:
             logger.error(f"❌ 스크래핑 중 오류 발생: {e}")
