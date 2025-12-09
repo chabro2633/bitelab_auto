@@ -240,7 +240,7 @@ def extract_all_pages_data(page, selected_date, brand_name):
     return df
 
 
-def scrape_brand(browser_context, brand, selected_date, max_retries=2):
+def scrape_brand(browser_context, brand, selected_date, max_retries=3):
     """단일 브랜드를 스크래핑합니다."""
     for attempt in range(max_retries):
         page = None
@@ -248,14 +248,18 @@ def scrape_brand(browser_context, brand, selected_date, max_retries=2):
             target_url = f"https://app.cigro.io/?menu=analysis&tab=product&group_by=option&brand_name={brand}&start_date={selected_date}&end_date={selected_date}"
 
             page = browser_context.new_page()
-            # 네트워크 idle 상태까지 대기 (더 빠른 로딩 감지)
-            page.goto(target_url, wait_until='networkidle', timeout=30000)
 
-            # 테이블 로딩 대기 - 고정 5초 대신 요소 대기
+            # domcontentloaded로 변경 (networkidle보다 빠름)
+            # 타임아웃 60초로 증가
+            page.goto(target_url, wait_until='domcontentloaded', timeout=60000)
+
+            # 테이블 로딩 대기 - 실제 데이터가 로드될 때까지 대기
             try:
-                page.wait_for_selector('div.sc-dkrFOg.cGhOUg', timeout=10000)
+                page.wait_for_selector('div.sc-dkrFOg.cGhOUg', timeout=30000)
             except:
-                logger.warning(f"⚠️ {brand} - 테이블 로딩 대기 타임아웃")
+                # 테이블이 없으면 로딩 완료 대기 후 재시도
+                logger.warning(f"⚠️ {brand} - 테이블 로딩 대기, 추가 대기 중...")
+                page.wait_for_timeout(3000)
 
             df = extract_all_pages_data(page, selected_date, brand)
 
@@ -263,9 +267,16 @@ def scrape_brand(browser_context, brand, selected_date, max_retries=2):
                 return brand, df, None
             else:
                 logger.warning(f"⚠️ {brand} 시도 {attempt + 1}/{max_retries}: 데이터 없음")
+                # 재시도 전 잠시 대기
+                if attempt < max_retries - 1:
+                    page.wait_for_timeout(2000)
 
         except Exception as e:
             logger.error(f"❌ {brand} 시도 {attempt + 1}/{max_retries} 오류: {e}")
+            # 재시도 전 잠시 대기
+            if attempt < max_retries - 1:
+                import time
+                time.sleep(3)
         finally:
             if page:
                 try:
