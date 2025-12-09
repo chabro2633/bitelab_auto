@@ -90,18 +90,51 @@ export async function GET() {
     // 현재 시간이 스케줄 시간 이전인지 확인
     const isBeforeSchedule = koreaTime < scheduledTime;
 
+    // 최신 실행이 진행 중인지 확인 (재시도 포함)
+    const latestRun = runsData.workflow_runs[0];
+    const isLatestRunning = latestRun && (latestRun.status === 'in_progress' || latestRun.status === 'queued');
+
     let scheduleStatus: 'pending' | 'running' | 'success' | 'failed' | 'waiting';
     let statusMessage: string;
+    let displayRun = todayScheduledRun; // 배너에 표시할 실행 정보
 
-    if (todayScheduledRun) {
+    // 최신 실행이 진행 중이면 그 상태를 우선 표시 (재시도 진행 중)
+    if (isLatestRunning) {
+      scheduleStatus = 'running';
+      const isRetry = latestRun.event === 'workflow_dispatch' && todayScheduledRun?.conclusion === 'failure';
+      statusMessage = isRetry
+        ? '재시도 스크래핑이 실행 중입니다...'
+        : '스크래핑이 실행 중입니다...';
+      displayRun = latestRun;
+    } else if (todayScheduledRun) {
       // 오늘 스케줄 실행이 있는 경우
       if (todayScheduledRun.status === 'completed') {
         if (todayScheduledRun.conclusion === 'success') {
           scheduleStatus = 'success';
           statusMessage = '오늘 아침 자동 스크래핑이 성공적으로 완료되었습니다';
         } else {
-          scheduleStatus = 'failed';
-          statusMessage = `오늘 아침 자동 스크래핑이 실패했습니다 (${todayScheduledRun.conclusion})`;
+          // 스케줄 실패했지만 이후 수동 실행이 성공했는지 확인
+          const laterSuccessRun = todayRuns.find((run: {
+            event: string;
+            created_at: string;
+            status: string;
+            conclusion: string | null;
+          }) => {
+            const runDate = new Date(run.created_at);
+            const scheduleDate = new Date(todayScheduledRun.created_at);
+            return runDate > scheduleDate &&
+                   run.status === 'completed' &&
+                   run.conclusion === 'success';
+          });
+
+          if (laterSuccessRun) {
+            scheduleStatus = 'success';
+            statusMessage = '재시도 스크래핑이 성공적으로 완료되었습니다';
+            displayRun = laterSuccessRun;
+          } else {
+            scheduleStatus = 'failed';
+            statusMessage = `오늘 아침 자동 스크래핑이 실패했습니다 (${todayScheduledRun.conclusion})`;
+          }
         }
       } else if (todayScheduledRun.status === 'in_progress') {
         scheduleStatus = 'running';
@@ -124,7 +157,14 @@ export async function GET() {
       scheduledTime: scheduledTime.toISOString(),
       currentTime: koreaTime.toISOString(),
       isBeforeSchedule,
-      todayScheduledRun: todayScheduledRun ? {
+      todayScheduledRun: displayRun ? {
+        id: displayRun.id,
+        status: displayRun.status,
+        conclusion: displayRun.conclusion,
+        created_at: displayRun.created_at,
+        html_url: displayRun.html_url
+      } : null,
+      originalScheduledRun: todayScheduledRun ? {
         id: todayScheduledRun.id,
         status: todayScheduledRun.status,
         conclusion: todayScheduledRun.conclusion,
@@ -132,13 +172,13 @@ export async function GET() {
         html_url: todayScheduledRun.html_url
       } : null,
       todayRunsCount: todayRuns.length,
-      latestRun: runsData.workflow_runs[0] ? {
-        id: runsData.workflow_runs[0].id,
-        event: runsData.workflow_runs[0].event,
-        status: runsData.workflow_runs[0].status,
-        conclusion: runsData.workflow_runs[0].conclusion,
-        created_at: runsData.workflow_runs[0].created_at,
-        html_url: runsData.workflow_runs[0].html_url
+      latestRun: latestRun ? {
+        id: latestRun.id,
+        event: latestRun.event,
+        status: latestRun.status,
+        conclusion: latestRun.conclusion,
+        created_at: latestRun.created_at,
+        html_url: latestRun.html_url
       } : null
     });
 

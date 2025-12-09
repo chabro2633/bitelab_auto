@@ -60,6 +60,22 @@ export default function AdminDashboard() {
     } | null;
   } | null>(null);
   const [scheduleLoading, setScheduleLoading] = useState(true);
+  const [isRetrying, setIsRetrying] = useState(false);
+  const [scheduleFailureLogs, setScheduleFailureLogs] = useState<Array<{
+    id: string;
+    scheduleRunId: string;
+    scheduleRunUrl: string;
+    failedAt: string;
+    responseStatus: 'pending' | 'responded' | 'response_failed' | 'ignored';
+    respondedAt?: string;
+    respondedBy?: string;
+    retryRunId?: string;
+    retryRunUrl?: string;
+    retryStatus?: 'success' | 'failed' | 'running';
+    retryErrorMessage?: string;
+    notes?: string;
+  }>>([]);
+  const [showFailureLogs, setShowFailureLogs] = useState(false);
 
   // Refs (must be at the top level)
   const prevStepsRef = useRef<string>('');
@@ -116,6 +132,7 @@ export default function AdminDashboard() {
     if (user) {
       fetchExecutionLogs();
       fetchScheduleStatus();
+      fetchScheduleFailureLogs();
     }
   }, [user]);
 
@@ -124,14 +141,157 @@ export default function AdminDashboard() {
     try {
       setScheduleLoading(true);
       const response = await fetch('/api/schedule-status');
+      const data = await response.json();
+      console.log('Schedule status response:', response.status, data);
       if (response.ok) {
-        const data = await response.json();
         setScheduleStatus(data);
+      } else {
+        console.error('Schedule status error:', data.error);
+        // 에러가 있어도 기본 상태 표시
+        setScheduleStatus({
+          scheduleStatus: 'pending',
+          statusMessage: data.error || '스케줄 상태를 가져올 수 없습니다',
+          scheduledTime: new Date().toISOString(),
+          todayScheduledRun: null
+        });
       }
     } catch (error) {
       console.error('Failed to fetch schedule status:', error);
+      setScheduleStatus({
+        scheduleStatus: 'pending',
+        statusMessage: '스케줄 상태를 가져올 수 없습니다',
+        scheduledTime: new Date().toISOString(),
+        todayScheduledRun: null
+      });
     } finally {
       setScheduleLoading(false);
+    }
+  };
+
+  // 스케줄 실패 로그 가져오기
+  const fetchScheduleFailureLogs = async () => {
+    try {
+      const response = await fetch('/api/schedule-failure-logs');
+      if (response.ok) {
+        const data = await response.json();
+        setScheduleFailureLogs(data.logs || []);
+      }
+    } catch (error) {
+      console.error('Failed to fetch schedule failure logs:', error);
+    }
+  };
+
+  // 스케줄 실패 재시도
+  const handleRetrySchedule = async () => {
+    if (!scheduleStatus?.todayScheduledRun || isRetrying) return;
+
+    setIsRetrying(true);
+    const failedRun = scheduleStatus.todayScheduledRun;
+
+    try {
+      // 1. 실패 로그 기록 (대응 시작)
+      await fetch('/api/schedule-failure-logs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          scheduleRunId: failedRun.id,
+          scheduleRunUrl: failedRun.html_url,
+          failedAt: failedRun.created_at,
+          responseStatus: 'pending'
+        })
+      });
+
+      addConsoleLog('🔄 스케줄 실패 재시도 시작...');
+      addConsoleLog(`📋 원본 실패 워크플로우: ${failedRun.id}`);
+
+      // 2. 워크플로우 재실행 트리거
+      const response = await fetch('/api/trigger-workflow', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          brands: undefined, // 모든 브랜드
+          isRetry: true,
+          originalRunId: failedRun.id
+        })
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        addConsoleLog('✅ 재시도 워크플로우가 트리거되었습니다');
+
+        // 3. 실패 로그 업데이트 (대응 완료)
+        await fetch('/api/schedule-failure-logs', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            scheduleRunId: failedRun.id,
+            updates: {
+              responseStatus: 'responded',
+              respondedAt: new Date().toISOString(),
+              respondedBy: user?.username,
+              retryRunId: data.runId || 'triggered',
+              retryStatus: 'running'
+            }
+          })
+        });
+
+        // 폴링 시작
+        setShowConsole(true);
+        startPolling();
+
+        // 스케줄 상태 새로고침
+        setTimeout(() => {
+          fetchScheduleStatus();
+          fetchScheduleFailureLogs();
+        }, 3000);
+      } else {
+        throw new Error(data.error || '재시도 실패');
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : '알 수 없는 오류';
+      addConsoleLog(`❌ 재시도 실패: ${errorMessage}`);
+
+      // 실패 로그 업데이트 (대응 실패)
+      await fetch('/api/schedule-failure-logs', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          scheduleRunId: failedRun.id,
+          updates: {
+            responseStatus: 'response_failed',
+            respondedAt: new Date().toISOString(),
+            respondedBy: user?.username,
+            retryErrorMessage: errorMessage
+          }
+        })
+      });
+
+      fetchScheduleFailureLogs();
+    } finally {
+      setIsRetrying(false);
+    }
+  };
+
+  // 실패 로그 상태 업데이트 (무시 처리)
+  const handleIgnoreFailure = async (logId: string) => {
+    try {
+      await fetch('/api/schedule-failure-logs', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          logId,
+          updates: {
+            responseStatus: 'ignored',
+            respondedAt: new Date().toISOString(),
+            respondedBy: user?.username,
+            notes: '수동으로 무시 처리됨'
+          }
+        })
+      });
+      fetchScheduleFailureLogs();
+    } catch (error) {
+      console.error('Failed to ignore failure:', error);
     }
   };
 
@@ -509,6 +669,26 @@ export default function AdminDashboard() {
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
+                  {/* 실패 시 재실행 버튼 */}
+                  {scheduleStatus.scheduleStatus === 'failed' && scheduleStatus.todayScheduledRun && (
+                    <button
+                      onClick={handleRetrySchedule}
+                      disabled={isRetrying}
+                      className="text-sm px-3 py-1 rounded-md bg-red-600 text-white hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                    >
+                      {isRetrying ? (
+                        <>
+                          <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                          재시도 중...
+                        </>
+                      ) : (
+                        <>🔄 재실행</>
+                      )}
+                    </button>
+                  )}
                   {scheduleStatus.todayScheduledRun && (
                     <a
                       href={scheduleStatus.todayScheduledRun.html_url}
@@ -525,6 +705,15 @@ export default function AdminDashboard() {
                       상세 보기
                     </a>
                   )}
+                  {/* 실패 로그 보기 버튼 */}
+                  {scheduleFailureLogs.length > 0 && (
+                    <button
+                      onClick={() => setShowFailureLogs(!showFailureLogs)}
+                      className="text-sm px-3 py-1 rounded-md bg-gray-100 text-gray-700 hover:bg-gray-200"
+                    >
+                      📋 실패 로그 ({scheduleFailureLogs.length})
+                    </button>
+                  )}
                   <button
                     onClick={fetchScheduleStatus}
                     className="text-gray-500 hover:text-gray-700 p-1"
@@ -536,6 +725,80 @@ export default function AdminDashboard() {
                   </button>
                 </div>
               </div>
+
+              {/* 실패 로그 목록 */}
+              {showFailureLogs && scheduleFailureLogs.length > 0 && (
+                <div className="mt-4 border-t pt-4">
+                  <h4 className="text-sm font-medium text-gray-700 mb-2">스케줄 실패 대응 로그</h4>
+                  <div className="space-y-2 max-h-60 overflow-y-auto">
+                    {scheduleFailureLogs.map((log) => (
+                      <div key={log.id} className="bg-gray-50 rounded p-3 text-sm">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                              log.responseStatus === 'responded' ? 'bg-green-100 text-green-700' :
+                              log.responseStatus === 'response_failed' ? 'bg-red-100 text-red-700' :
+                              log.responseStatus === 'ignored' ? 'bg-gray-100 text-gray-700' :
+                              'bg-yellow-100 text-yellow-700'
+                            }`}>
+                              {log.responseStatus === 'responded' ? '대응 완료' :
+                               log.responseStatus === 'response_failed' ? '대응 실패' :
+                               log.responseStatus === 'ignored' ? '무시됨' : '대응 대기'}
+                            </span>
+                            {log.retryStatus && (
+                              <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                                log.retryStatus === 'success' ? 'bg-green-100 text-green-700' :
+                                log.retryStatus === 'failed' ? 'bg-red-100 text-red-700' :
+                                'bg-blue-100 text-blue-700'
+                              }`}>
+                                재시도: {log.retryStatus === 'success' ? '성공' : log.retryStatus === 'failed' ? '실패' : '진행중'}
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {log.responseStatus === 'pending' && (
+                              <button
+                                onClick={() => handleIgnoreFailure(log.id)}
+                                className="text-xs text-gray-500 hover:text-gray-700"
+                              >
+                                무시
+                              </button>
+                            )}
+                            <a
+                              href={log.scheduleRunUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-xs text-blue-600 hover:text-blue-800"
+                            >
+                              원본 보기
+                            </a>
+                            {log.retryRunUrl && (
+                              <a
+                                href={log.retryRunUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-xs text-blue-600 hover:text-blue-800"
+                              >
+                                재시도 보기
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                        <div className="mt-1 text-xs text-gray-500">
+                          실패 시간: {new Date(log.failedAt).toLocaleString('ko-KR')}
+                          {log.respondedAt && ` | 대응 시간: ${new Date(log.respondedAt).toLocaleString('ko-KR')}`}
+                          {log.respondedBy && ` | 대응자: ${log.respondedBy}`}
+                        </div>
+                        {log.retryErrorMessage && (
+                          <div className="mt-1 text-xs text-red-600">
+                            오류: {log.retryErrorMessage}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           ) : null}
         </div>

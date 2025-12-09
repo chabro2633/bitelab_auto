@@ -15,7 +15,7 @@ export interface ExecutionLog {
   id: string;
   userId: string;
   username: string;
-  executionType: 'manual' | 'scheduled' | 'api';
+  executionType: 'manual' | 'scheduled' | 'api' | 'retry';
   brands: string[];
   date?: string;
   status: 'success' | 'failed' | 'running';
@@ -23,14 +23,39 @@ export interface ExecutionLog {
   endTime?: string;
   errorMessage?: string;
   workflowUrl?: string;
+  // 스케줄 실패 대응 관련 필드
+  isRetryOf?: string; // 원본 실패 워크플로우 ID
+  retryAttempt?: number; // 재시도 횟수
 }
 
-const USERS_FILE = process.env.NODE_ENV === 'production' 
-  ? '/tmp/users.json' 
+export interface ScheduleFailureLog {
+  id: string;
+  scheduleRunId: string;
+  scheduleRunUrl: string;
+  failedAt: string;
+  failureReason?: string;
+  // 대응 상태
+  responseStatus: 'pending' | 'responded' | 'response_failed' | 'ignored';
+  respondedAt?: string;
+  respondedBy?: string;
+  // 재시도 정보
+  retryRunId?: string;
+  retryRunUrl?: string;
+  retryStatus?: 'success' | 'failed' | 'running';
+  retryErrorMessage?: string;
+  // 메모
+  notes?: string;
+}
+
+const USERS_FILE = process.env.NODE_ENV === 'production'
+  ? '/tmp/users.json'
   : path.join(process.cwd(), 'src/lib/users.json');
 const EXECUTION_LOGS_FILE = process.env.NODE_ENV === 'production'
   ? '/tmp/execution-logs.json'
   : path.join(process.cwd(), 'src/lib/execution-logs.json');
+const SCHEDULE_FAILURE_LOGS_FILE = process.env.NODE_ENV === 'production'
+  ? '/tmp/schedule-failure-logs.json'
+  : path.join(process.cwd(), 'src/lib/schedule-failure-logs.json');
 
 export async function hashPassword(password: string): Promise<string> {
   return bcrypt.hash(password, 10);
@@ -281,10 +306,81 @@ export function addExecutionLog(log: Omit<ExecutionLog, 'id'>): ExecutionLog {
 export function updateExecutionLog(logId: string, updates: Partial<ExecutionLog>): void {
   const logs = getExecutionLogs();
   const logIndex = logs.findIndex(log => log.id === logId);
-  
+
   if (logIndex !== -1) {
     logs[logIndex] = { ...logs[logIndex], ...updates };
     saveExecutionLogs(logs);
   }
+}
+
+// 스케줄 실패 로그 관리 함수들
+export function getScheduleFailureLogs(): ScheduleFailureLog[] {
+  try {
+    if (!fs.existsSync(SCHEDULE_FAILURE_LOGS_FILE)) {
+      if (process.env.NODE_ENV === 'production') {
+        const data = JSON.stringify({ logs: [] }, null, 2);
+        fs.writeFileSync(SCHEDULE_FAILURE_LOGS_FILE, data, 'utf8');
+      }
+      return [];
+    }
+    const data = fs.readFileSync(SCHEDULE_FAILURE_LOGS_FILE, 'utf8');
+    const parsed = JSON.parse(data);
+    return parsed.logs || [];
+  } catch (error) {
+    console.error('Error reading schedule failure logs file:', error);
+    return [];
+  }
+}
+
+export function saveScheduleFailureLogs(logs: ScheduleFailureLog[]): void {
+  try {
+    const data = JSON.stringify({ logs }, null, 2);
+    fs.writeFileSync(SCHEDULE_FAILURE_LOGS_FILE, data, 'utf8');
+  } catch (error) {
+    console.error('Error saving schedule failure logs file:', error);
+    throw new Error('Failed to save schedule failure logs');
+  }
+}
+
+export function addScheduleFailureLog(log: Omit<ScheduleFailureLog, 'id'>): ScheduleFailureLog {
+  const logs = getScheduleFailureLogs();
+
+  // 같은 scheduleRunId가 이미 있으면 추가하지 않음
+  const existing = logs.find(l => l.scheduleRunId === log.scheduleRunId);
+  if (existing) {
+    return existing;
+  }
+
+  const newLog: ScheduleFailureLog = {
+    ...log,
+    id: Date.now().toString()
+  };
+
+  logs.unshift(newLog);
+
+  // 최대 50개 로그만 유지
+  if (logs.length > 50) {
+    logs.splice(50);
+  }
+
+  saveScheduleFailureLogs(logs);
+  return newLog;
+}
+
+export function updateScheduleFailureLog(logId: string, updates: Partial<ScheduleFailureLog>): ScheduleFailureLog | null {
+  const logs = getScheduleFailureLogs();
+  const logIndex = logs.findIndex(log => log.id === logId);
+
+  if (logIndex !== -1) {
+    logs[logIndex] = { ...logs[logIndex], ...updates };
+    saveScheduleFailureLogs(logs);
+    return logs[logIndex];
+  }
+  return null;
+}
+
+export function getScheduleFailureLogByRunId(scheduleRunId: string): ScheduleFailureLog | null {
+  const logs = getScheduleFailureLogs();
+  return logs.find(log => log.scheduleRunId === scheduleRunId) || null;
 }
 
