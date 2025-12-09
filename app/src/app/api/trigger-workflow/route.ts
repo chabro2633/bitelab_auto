@@ -14,8 +14,9 @@ export async function POST(request: NextRequest) {
 
     // GitHub Actions 워크플로우 트리거
     const githubToken = process.env.GITHUB_TOKEN;
-    const repoOwner = 'chabro2633';
-    const repoName = 'bitelab_auto';
+    const repoOwner = process.env.GITHUB_REPO_OWNER || 'chabro2633';
+    const repoName = process.env.GITHUB_REPO_NAME || 'bitelab_auto';
+    const workflowId = process.env.GITHUB_WORKFLOW_ID || 'scrape.yml';
 
     if (!githubToken) {
       return NextResponse.json({
@@ -23,11 +24,11 @@ export async function POST(request: NextRequest) {
       }, { status: 500 });
     }
 
-    console.log('Triggering workflow with:', { startDate, endDate, brands, githubToken: githubToken.substring(0, 10) + '...' });
+    console.log('Triggering workflow for:', { startDate, endDate, brands });
 
-    // GitHub Actions 워크플로우 실행 (워크플로우 ID 사용)
+    // GitHub Actions 워크플로우 실행 (워크플로우 파일명 사용)
     const workflowResponse = await fetch(
-      `https://api.github.com/repos/${repoOwner}/${repoName}/actions/workflows/198911155/dispatches`,
+      `https://api.github.com/repos/${repoOwner}/${repoName}/actions/workflows/${workflowId}/dispatches`,
       {
         method: 'POST',
         headers: {

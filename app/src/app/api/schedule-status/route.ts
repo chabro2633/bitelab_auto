@@ -10,8 +10,9 @@ export async function GET() {
 
   try {
     const githubToken = process.env.GITHUB_TOKEN;
-    const repoOwner = 'chabro2633';
-    const repoName = 'bitelab_auto';
+    const repoOwner = process.env.GITHUB_REPO_OWNER || 'chabro2633';
+    const repoName = process.env.GITHUB_REPO_NAME || 'bitelab_auto';
+    const workflowId = process.env.GITHUB_WORKFLOW_ID || 'scrape.yml';
 
     if (!githubToken) {
       return NextResponse.json({
@@ -31,7 +32,7 @@ export async function GET() {
 
     // 최근 워크플로우 실행 목록 가져오기 (오늘 날짜 기준으로 필터링)
     const runsResponse = await fetch(
-      `https://api.github.com/repos/${repoOwner}/${repoName}/actions/workflows/scrape.yml/runs?per_page=10`,
+      `https://api.github.com/repos/${repoOwner}/${repoName}/actions/workflows/${workflowId}/runs?per_page=10`,
       {
         headers: {
           'Authorization': `token ${githubToken}`,

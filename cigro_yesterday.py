@@ -29,11 +29,17 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# 환경 변수에서 설정 읽기
+# 환경 변수에서 설정 읽기 (필수 값은 기본값 없음)
 GOOGLE_SHEET_NAME = os.getenv("GOOGLE_SHEET_NAME", "Cigro Sales")
 GOOGLE_CRED_FILE = os.getenv("GOOGLE_CRED_FILE", "google_sheet_credentials.json")
-EMAIL = os.getenv("EMAIL", "tei.cha@bitelab.co.kr")
-PASSWORD = os.getenv("PASSWORD", "qkfmsj123")
+EMAIL = os.getenv("EMAIL")
+PASSWORD = os.getenv("PASSWORD")
+
+# 필수 환경 변수 검증
+if not EMAIL or not PASSWORD:
+    logger.error("❌ EMAIL과 PASSWORD 환경변수가 설정되지 않았습니다.")
+    logger.error("   GitHub Secrets 또는 환경 변수를 확인하세요.")
+    sys.exit(1)
 
 BRANDS = ["바르너", "릴리이브", "색동서울", "먼슬리픽", "보호리"]
 

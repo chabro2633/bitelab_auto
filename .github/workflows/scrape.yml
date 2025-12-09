@@ -83,33 +83,34 @@ jobs:
         EMAIL: ${{ secrets.CIGRO_EMAIL }}
         PASSWORD: ${{ secrets.CIGRO_PASSWORD }}
         GOOGLE_SHEET_NAME: ${{ secrets.GOOGLE_SHEET_NAME }}
-        SCRAPE_START_DATE: ${{ github.event.inputs.start_date }}
-        SCRAPE_END_DATE: ${{ github.event.inputs.end_date }}
-        SCRAPE_BRANDS: ${{ github.event.inputs.brands }}
       run: |
-        python_command="python cigro_yesterday.py"
+        # 안전한 명령어 실행 (eval 사용 안함)
+        ARGS=""
 
-        if [ -n "$SCRAPE_START_DATE" ]; then
-          echo "시작 날짜: $SCRAPE_START_DATE"
-          python_command="$python_command --start-date \"$SCRAPE_START_DATE\""
+        # 시작 날짜 설정
+        if [ -n "${{ github.event.inputs.start_date }}" ]; then
+          echo "시작 날짜: ${{ github.event.inputs.start_date }}"
+          ARGS="$ARGS --start-date ${{ github.event.inputs.start_date }}"
 
-          if [ -n "$SCRAPE_END_DATE" ]; then
-            echo "종료 날짜: $SCRAPE_END_DATE"
-            python_command="$python_command --end-date \"$SCRAPE_END_DATE\""
+          # 종료 날짜 설정
+          if [ -n "${{ github.event.inputs.end_date }}" ]; then
+            echo "종료 날짜: ${{ github.event.inputs.end_date }}"
+            ARGS="$ARGS --end-date ${{ github.event.inputs.end_date }}"
           fi
         else
           echo "어제 날짜로 스크래핑"
         fi
 
-        if [ -n "$SCRAPE_BRANDS" ]; then
-          echo "선택된 브랜드: $SCRAPE_BRANDS"
-          python_command="$python_command --brands $SCRAPE_BRANDS"
+        # 브랜드 설정
+        if [ -n "${{ github.event.inputs.brands }}" ]; then
+          echo "선택된 브랜드: ${{ github.event.inputs.brands }}"
+          ARGS="$ARGS --brands ${{ github.event.inputs.brands }}"
         else
           echo "모든 브랜드 스크래핑"
         fi
 
-        echo "실행 명령어: $python_command"
-        eval $python_command
+        echo "실행 명령어: python cigro_yesterday.py $ARGS"
+        python cigro_yesterday.py $ARGS
         
     - name: Upload logs
       if: always()

@@ -21,12 +21,12 @@ export async function GET(request: NextRequest) {
     }
 
     const githubToken = process.env.GITHUB_TOKEN;
-    const repoOwner = 'chabro2633';
-    const repoName = 'bitelab_auto';
-    
+    const repoOwner = process.env.GITHUB_REPO_OWNER || 'chabro2633';
+    const repoName = process.env.GITHUB_REPO_NAME || 'bitelab_auto';
+
     if (!githubToken) {
-      return NextResponse.json({ 
-        error: 'GitHub token not configured' 
+      return NextResponse.json({
+        error: 'GitHub token not configured'
       }, { status: 500 });
     }
 

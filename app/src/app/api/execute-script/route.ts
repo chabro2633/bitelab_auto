@@ -42,6 +42,16 @@ export async function POST(request: NextRequest) {
     
     const command = `python3 "${fullScriptPath}" ${commandArgs}`;
     
+    // 필수 환경 변수 검증
+    if (!process.env.CIGRO_EMAIL || !process.env.CIGRO_PASSWORD) {
+      return NextResponse.json({
+        success: false,
+        error: 'CIGRO_EMAIL과 CIGRO_PASSWORD 환경변수가 설정되지 않았습니다.',
+        output: '',
+        suggestions: ['Vercel 환경 변수에서 CIGRO_EMAIL과 CIGRO_PASSWORD를 설정하세요.'],
+      }, { status: 500 });
+    }
+
     // 스크립트 실행 (구글 시트 인증 파일 경로를 환경변수로 전달)
     const { stdout, stderr } = await execAsync(command, {
       timeout: 120000, // 2분 타임아웃 (GitHub Actions 환경 고려)
@@ -50,9 +60,9 @@ export async function POST(request: NextRequest) {
         ...process.env,
         GOOGLE_APPLICATION_CREDENTIALS: credentialsPath,
         PYTHONPATH: path.join(process.cwd(), '..'),
-        // 환경 변수로 설정 전달
-        EMAIL: process.env.CIGRO_EMAIL || 'tei.cha@bitelab.co.kr',
-        PASSWORD: process.env.CIGRO_PASSWORD || 'qkfmsj123',
+        // 환경 변수로 설정 전달 (기본값 없음)
+        EMAIL: process.env.CIGRO_EMAIL,
+        PASSWORD: process.env.CIGRO_PASSWORD,
         GOOGLE_SHEET_NAME: process.env.GOOGLE_SHEET_NAME || 'Cigro Sales',
       },
     });

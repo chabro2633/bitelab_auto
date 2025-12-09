@@ -11,18 +11,19 @@ export async function GET() {
 
   try {
     const githubToken = process.env.GITHUB_TOKEN;
-    const repoOwner = 'chabro2633';
-    const repoName = 'bitelab_auto';
-    
+    const repoOwner = process.env.GITHUB_REPO_OWNER || 'chabro2633';
+    const repoName = process.env.GITHUB_REPO_NAME || 'bitelab_auto';
+    const workflowId = process.env.GITHUB_WORKFLOW_ID || 'scrape.yml';
+
     if (!githubToken) {
-      return NextResponse.json({ 
-        error: 'GitHub token not configured' 
+      return NextResponse.json({
+        error: 'GitHub token not configured'
       }, { status: 500 });
     }
 
     // 최근 워크플로우 실행 목록 가져오기
     const runsResponse = await fetch(
-      `https://api.github.com/repos/${repoOwner}/${repoName}/actions/workflows/198911155/runs?per_page=1`,
+      `https://api.github.com/repos/${repoOwner}/${repoName}/actions/workflows/${workflowId}/runs?per_page=1`,
       {
         headers: {
           'Authorization': `token ${githubToken}`,
