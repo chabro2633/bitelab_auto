@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 
 interface ExecutionResult {
@@ -181,25 +181,54 @@ export default function AdminDashboard() {
     setWorkflowLogs([]);
   };
 
+  const prevStepsRef = useRef<string>('');
+  const lastLogCountRef = useRef<number>(0);
+
   const fetchWorkflowStatus = async () => {
     try {
       const response = await fetch('/api/workflow-status');
       if (response.ok) {
         const data = await response.json();
         setWorkflowStatus(data);
-        
-        // 워크플로우가 실행 중이고 작업이 있는 경우 로그 가져오기
+
+        // Steps 상태 변화 감지 및 로깅
         if (data.jobs && data.jobs.length > 0) {
-          const job = data.jobs[0]; // 첫 번째 작업
+          const job = data.jobs[0];
+          const currentStepsState = JSON.stringify(job.steps?.map((s: { name: string; status: string; conclusion?: string }) => ({
+            name: s.name,
+            status: s.status,
+            conclusion: s.conclusion
+          })));
+
+          if (currentStepsState !== prevStepsRef.current) {
+            // 새로운 step 상태 로깅
+            job.steps?.forEach((step: { name: string; status: string; conclusion?: string; number: number }) => {
+              const prevSteps = prevStepsRef.current ? JSON.parse(prevStepsRef.current) : [];
+              const prevStep = prevSteps.find((s: { name: string }) => s.name === step.name);
+
+              if (!prevStep || prevStep.status !== step.status || prevStep.conclusion !== step.conclusion) {
+                if (step.status === 'in_progress') {
+                  addConsoleLog(`🔄 [Step ${step.number}] ${step.name} 실행 중...`);
+                } else if (step.status === 'completed') {
+                  const emoji = step.conclusion === 'success' ? '✅' : step.conclusion === 'skipped' ? '⏭️' : '❌';
+                  addConsoleLog(`${emoji} [Step ${step.number}] ${step.name} ${step.conclusion === 'success' ? '완료' : step.conclusion === 'skipped' ? '스킵' : '실패'}`);
+                }
+              }
+            });
+            prevStepsRef.current = currentStepsState;
+          }
+
+          // 실행 중인 작업의 로그 가져오기
           if (job.status === 'in_progress' || job.status === 'completed') {
             await fetchWorkflowLogs(data.run.id, job.id);
           }
         }
-        
+
         // 워크플로우가 완료되면 폴링 중지
         if (data.status === 'completed') {
           stopPolling();
-          addConsoleLog(`🏁 워크플로우 완료: ${data.conclusion === 'success' ? '성공' : '실패'}`);
+          const emoji = data.conclusion === 'success' ? '🎉' : '❌';
+          addConsoleLog(`${emoji} 워크플로우 완료: ${data.conclusion === 'success' ? '성공!' : '실패'}`);
         }
       }
     } catch (error) {
@@ -213,15 +242,40 @@ export default function AdminDashboard() {
       if (response.ok) {
         const data = await response.json();
         setWorkflowLogs(data.logs);
-        
-        // 최신 로그를 콘솔에 추가
-        const newLogs = data.logs.slice(workflowLogs.length);
-        newLogs.forEach((log: { id: number; timestamp: string; level: string; message: string; raw: string }) => {
-          const emoji = log.level === 'success' ? '✅' : 
-                       log.level === 'error' ? '❌' : 
-                       log.level === 'warning' ? '⚠️' : '📝';
-          addConsoleLog(`${emoji} [GitHub Actions] ${log.message}`);
-        });
+
+        // 새로운 로그만 콘솔에 추가 (중요한 로그만 필터링)
+        if (data.logs.length > lastLogCountRef.current) {
+          const newLogs = data.logs.slice(lastLogCountRef.current);
+          newLogs.forEach((log: { id: number; timestamp: string; level: string; message: string; raw: string }) => {
+            // 중요한 로그만 표시 (스크래핑 관련 메시지)
+            const message = log.message;
+            if (
+              message.includes('스크래핑') ||
+              message.includes('브랜드') ||
+              message.includes('데이터') ||
+              message.includes('업로드') ||
+              message.includes('Google Sheets') ||
+              message.includes('✅') ||
+              message.includes('❌') ||
+              message.includes('⚠️') ||
+              message.includes('🚀') ||
+              message.includes('📅') ||
+              message.includes('📋') ||
+              message.includes('🔍') ||
+              message.includes('성공') ||
+              message.includes('실패') ||
+              message.includes('완료') ||
+              message.includes('ERROR') ||
+              message.includes('error')
+            ) {
+              const emoji = log.level === 'success' ? '✅' :
+                           log.level === 'error' ? '❌' :
+                           log.level === 'warning' ? '⚠️' : '📝';
+              addConsoleLog(`${emoji} ${message}`);
+            }
+          });
+          lastLogCountRef.current = data.logs.length;
+        }
       }
     } catch (error) {
       console.error('Failed to fetch workflow logs:', error);
@@ -230,11 +284,18 @@ export default function AdminDashboard() {
 
   const startPolling = () => {
     if (pollingInterval) return;
-    
+
+    // 폴링 시작 시 ref 초기화
+    prevStepsRef.current = '';
+    lastLogCountRef.current = 0;
+
     setIsPolling(true);
-    const interval = setInterval(fetchWorkflowStatus, 5000); // 5초마다 폴링
+    // 먼저 즉시 한번 호출
+    fetchWorkflowStatus();
+    // 그 후 3초마다 폴링
+    const interval = setInterval(fetchWorkflowStatus, 3000);
     setPollingInterval(interval);
-    addConsoleLog('🔄 GitHub Actions 상태 모니터링 시작');
+    addConsoleLog('🔄 GitHub Actions 실시간 모니터링 시작...');
   };
 
   const stopPolling = () => {
@@ -704,9 +765,43 @@ export default function AdminDashboard() {
                             </div>
                           )}
                           {workflowStatus.jobs && workflowStatus.jobs.length > 0 && (
-                            <div>
-                              작업: <span className="text-gray-300">{workflowStatus.jobs[0].name}</span>
-                            </div>
+                            <>
+                              <div>
+                                작업: <span className="text-gray-300">{workflowStatus.jobs[0].name}</span>
+                              </div>
+                              {/* Steps 진행 상태 */}
+                              {workflowStatus.jobs[0].steps && workflowStatus.jobs[0].steps.length > 0 && (
+                                <div className="mt-2 pt-2 border-t border-gray-700">
+                                  <div className="text-yellow-400 text-xs font-semibold mb-1">📋 Steps 진행 상태</div>
+                                  <div className="space-y-0.5 max-h-32 overflow-y-auto">
+                                    {workflowStatus.jobs[0].steps.map((step: { name: string; status: string; conclusion?: string; number: number }) => {
+                                      let stepIcon = '⏳';
+                                      let stepColor = 'text-gray-500';
+                                      if (step.status === 'completed') {
+                                        if (step.conclusion === 'success') {
+                                          stepIcon = '✅';
+                                          stepColor = 'text-green-400';
+                                        } else if (step.conclusion === 'skipped') {
+                                          stepIcon = '⏭️';
+                                          stepColor = 'text-gray-400';
+                                        } else {
+                                          stepIcon = '❌';
+                                          stepColor = 'text-red-400';
+                                        }
+                                      } else if (step.status === 'in_progress') {
+                                        stepIcon = '🔄';
+                                        stepColor = 'text-blue-400 animate-pulse';
+                                      }
+                                      return (
+                                        <div key={step.number} className={`text-xs ${stepColor}`}>
+                                          {stepIcon} {step.name}
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              )}
+                            </>
                           )}
                         </div>
                       </div>
@@ -726,8 +821,10 @@ export default function AdminDashboard() {
                             logColor = 'text-red-400';
                           } else if (log.includes('⚠️')) {
                             logColor = 'text-yellow-400';
-                          } else if (log.includes('📡') || log.includes('📥')) {
+                          } else if (log.includes('📡') || log.includes('📥') || log.includes('🔄') || log.includes('[Step')) {
                             logColor = 'text-blue-400';
+                          } else if (log.includes('🚀') || log.includes('📅') || log.includes('📋')) {
+                            logColor = 'text-cyan-400';
                           }
                           
                           return (
