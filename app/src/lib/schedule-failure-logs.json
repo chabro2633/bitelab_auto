@@ -8,8 +8,9 @@
       "id": "1765243682999",
       "respondedAt": "2025-12-09T01:28:03.771Z",
       "respondedBy": "admin",
-      "retryRunId": "triggered",
-      "retryStatus": "running"
+      "retryRunId": 20048710687,
+      "retryStatus": "success",
+      "retryRunUrl": "https://github.com/chabro2633/bitelab_auto/actions/runs/20048710687"
     }
   ]
 }

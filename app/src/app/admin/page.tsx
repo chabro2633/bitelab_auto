@@ -168,16 +168,62 @@ export default function AdminDashboard() {
     }
   };
 
-  // 스케줄 실패 로그 가져오기
+  // 스케줄 실패 로그 가져오기 및 진행중 상태 업데이트
   const fetchScheduleFailureLogs = async () => {
     try {
       const response = await fetch('/api/schedule-failure-logs');
       if (response.ok) {
         const data = await response.json();
-        setScheduleFailureLogs(data.logs || []);
+        const logs = data.logs || [];
+        setScheduleFailureLogs(logs);
+
+        // "진행중" 상태인 로그가 있으면 실제 워크플로우 상태 확인
+        const runningLogs = logs.filter((log: { retryStatus?: string }) => log.retryStatus === 'running');
+        if (runningLogs.length > 0) {
+          checkAndUpdateRunningLogs(runningLogs);
+        }
       }
     } catch (error) {
       console.error('Failed to fetch schedule failure logs:', error);
+    }
+  };
+
+  // 진행중인 로그의 실제 상태 확인 및 업데이트
+  const checkAndUpdateRunningLogs = async (runningLogs: Array<{ id: string; retryRunId?: string }>) => {
+    try {
+      const statusResponse = await fetch('/api/workflow-status');
+      if (!statusResponse.ok) return;
+
+      const statusData = await statusResponse.json();
+
+      for (const log of runningLogs) {
+        // 최신 워크플로우가 완료되었는지 확인
+        if (statusData.status === 'completed' && statusData.run) {
+          const conclusion = statusData.conclusion;
+          await fetch('/api/schedule-failure-logs', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              logId: log.id,
+              updates: {
+                retryStatus: conclusion === 'success' ? 'success' : 'failed',
+                retryRunId: statusData.run.id,
+                retryRunUrl: statusData.run.html_url,
+                retryErrorMessage: conclusion !== 'success' ? `워크플로우 실패: ${conclusion}` : undefined
+              }
+            })
+          });
+        }
+      }
+
+      // 업데이트 후 다시 로그 가져오기
+      const refreshResponse = await fetch('/api/schedule-failure-logs');
+      if (refreshResponse.ok) {
+        const refreshData = await refreshResponse.json();
+        setScheduleFailureLogs(refreshData.logs || []);
+      }
+    } catch (error) {
+      console.error('Failed to check running logs:', error);
     }
   };
 
@@ -386,15 +432,49 @@ export default function AdminDashboard() {
           }
         }
 
-        // 워크플로우가 완료되면 폴링 중지
+        // 워크플로우가 완료되면 폴링 중지 및 실패 로그 업데이트
         if (data.status === 'completed') {
           stopPolling();
           const emoji = data.conclusion === 'success' ? '🎉' : '❌';
           addConsoleLog(`${emoji} 워크플로우 완료: ${data.conclusion === 'success' ? '성공!' : '실패'}`);
+
+          // 스케줄 상태 및 실패 로그 새로고침
+          fetchScheduleStatus();
+          fetchScheduleFailureLogs();
+
+          // 실패 로그의 retryStatus 업데이트
+          updateRetryStatus(data.run.id, data.conclusion === 'success' ? 'success' : 'failed');
         }
       }
     } catch (error) {
       console.error('Failed to fetch workflow status:', error);
+    }
+  };
+
+  // 재시도 상태 업데이트 함수
+  const updateRetryStatus = async (runId: string, status: 'success' | 'failed') => {
+    try {
+      // retryRunId가 일치하는 로그 찾기
+      const logToUpdate = scheduleFailureLogs.find(log =>
+        log.retryRunId === runId || log.retryRunId === 'triggered'
+      );
+
+      if (logToUpdate) {
+        await fetch('/api/schedule-failure-logs', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            logId: logToUpdate.id,
+            updates: {
+              retryStatus: status,
+              retryErrorMessage: status === 'failed' ? '워크플로우 실행 실패' : undefined
+            }
+          })
+        });
+        fetchScheduleFailureLogs();
+      }
+    } catch (error) {
+      console.error('Failed to update retry status:', error);
     }
   };
 
@@ -705,15 +785,39 @@ export default function AdminDashboard() {
                       상세 보기
                     </a>
                   )}
-                  {/* 실패 로그 보기 버튼 */}
-                  {scheduleFailureLogs.length > 0 && (
-                    <button
-                      onClick={() => setShowFailureLogs(!showFailureLogs)}
-                      className="text-sm px-3 py-1 rounded-md bg-gray-100 text-gray-700 hover:bg-gray-200"
-                    >
-                      📋 실패 로그 ({scheduleFailureLogs.length})
-                    </button>
-                  )}
+                  {/* 스케줄 대응 로그 보기 버튼 */}
+                  {scheduleFailureLogs.length > 0 && (() => {
+                    // 로그 상태에 따른 버튼 텍스트 결정
+                    const hasRunning = scheduleFailureLogs.some(log => log.retryStatus === 'running');
+                    const hasSuccess = scheduleFailureLogs.some(log => log.retryStatus === 'success');
+                    const hasFailed = scheduleFailureLogs.some(log => log.retryStatus === 'failed' || log.responseStatus === 'response_failed');
+
+                    let buttonText = '📋 대응 로그';
+                    let buttonClass = 'bg-gray-100 text-gray-700 hover:bg-gray-200';
+
+                    if (hasRunning) {
+                      buttonText = '🔄 진행중';
+                      buttonClass = 'bg-blue-100 text-blue-700 hover:bg-blue-200';
+                    } else if (hasSuccess && !hasFailed) {
+                      buttonText = '✅ 성공 로그';
+                      buttonClass = 'bg-green-100 text-green-700 hover:bg-green-200';
+                    } else if (hasFailed && !hasSuccess) {
+                      buttonText = '❌ 실패 로그';
+                      buttonClass = 'bg-red-100 text-red-700 hover:bg-red-200';
+                    } else if (hasSuccess && hasFailed) {
+                      buttonText = '📋 대응 로그';
+                      buttonClass = 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200';
+                    }
+
+                    return (
+                      <button
+                        onClick={() => setShowFailureLogs(!showFailureLogs)}
+                        className={`text-sm px-3 py-1 rounded-md ${buttonClass}`}
+                      >
+                        {buttonText} ({scheduleFailureLogs.length})
+                      </button>
+                    );
+                  })()}
                   <button
                     onClick={fetchScheduleStatus}
                     className="text-gray-500 hover:text-gray-700 p-1"
@@ -726,10 +830,25 @@ export default function AdminDashboard() {
                 </div>
               </div>
 
-              {/* 실패 로그 목록 */}
-              {showFailureLogs && scheduleFailureLogs.length > 0 && (
+              {/* 스케줄 대응 로그 목록 */}
+              {showFailureLogs && scheduleFailureLogs.length > 0 && (() => {
+                // 섹션 제목 결정
+                const hasRunning = scheduleFailureLogs.some(log => log.retryStatus === 'running');
+                const hasSuccess = scheduleFailureLogs.some(log => log.retryStatus === 'success');
+                const hasFailed = scheduleFailureLogs.some(log => log.retryStatus === 'failed' || log.responseStatus === 'response_failed');
+
+                let sectionTitle = '스케줄 대응 로그';
+                if (hasRunning) {
+                  sectionTitle = '스케줄 대응 진행중';
+                } else if (hasSuccess && !hasFailed) {
+                  sectionTitle = '스케줄 대응 성공 로그';
+                } else if (hasFailed && !hasSuccess) {
+                  sectionTitle = '스케줄 대응 실패 로그';
+                }
+
+                return (
                 <div className="mt-4 border-t pt-4">
-                  <h4 className="text-sm font-medium text-gray-700 mb-2">스케줄 실패 대응 로그</h4>
+                  <h4 className="text-sm font-medium text-gray-700 mb-2">{sectionTitle}</h4>
                   <div className="space-y-2 max-h-60 overflow-y-auto">
                     {scheduleFailureLogs.map((log) => (
                       <div key={log.id} className="bg-gray-50 rounded p-3 text-sm">
@@ -798,7 +917,8 @@ export default function AdminDashboard() {
                     ))}
                   </div>
                 </div>
-              )}
+                );
+              })()}
             </div>
           ) : null}
         </div>
