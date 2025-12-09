@@ -15,10 +15,10 @@ export async function GET() {
 
     const users = await getUsers();
     // 비밀번호 제외하고 사용자 정보 반환
-    const safeUsers = users.map(({ password: _password, ...user }) => user);
-    
+    const safeUsers = users.map(({ password: _, ...user }) => user);
+
     return NextResponse.json({ users: safeUsers });
-  } catch (error) {
+  } catch {
     return NextResponse.json({ error: 'Failed to fetch users' }, { status: 500 });
   }
 }
@@ -38,9 +38,9 @@ export async function POST(request: NextRequest) {
     }
 
     const newUser = await createUser(username, password, role, allowedBrands);
-    
+
     // 비밀번호 제외하고 반환
-    const { password: _password, ...safeUser } = newUser;
+    const { password: _, ...safeUser } = newUser;
     
     return NextResponse.json({ user: safeUser }, { status: 201 });
   } catch (error: unknown) {

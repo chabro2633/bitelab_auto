@@ -30,7 +30,7 @@ export default function AdminDashboard() {
     status: string;
     conclusion?: string;
   } | null>(null);
-  const [workflowLogs, setWorkflowLogs] = useState<Array<{ id: number; timestamp: string; level: string; message: string; raw: string }>>([]);
+  const [, setWorkflowLogs] = useState<Array<{ id: number; timestamp: string; level: string; message: string; raw: string }>>([]);
   const [isPolling, setIsPolling] = useState(false);
   const [pollingInterval, setPollingInterval] = useState<NodeJS.Timeout | null>(null);
   const [executionLogs, setExecutionLogs] = useState<Array<{
@@ -61,6 +61,10 @@ export default function AdminDashboard() {
   } | null>(null);
   const [scheduleLoading, setScheduleLoading] = useState(true);
 
+  // Refs (must be at the top level)
+  const prevStepsRef = useRef<string>('');
+  const lastLogCountRef = useRef<number>(0);
+
   const availableBrands = ['바르너', '릴리이브', '보호리', '먼슬리픽', '색동서울'];
 
   // 세션 확인
@@ -85,6 +89,7 @@ export default function AdminDashboard() {
     };
 
     checkSession();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
 
   // 콘솔 로그가 추가될 때마다 자동 스크롤
@@ -180,9 +185,6 @@ export default function AdminDashboard() {
     setConsoleLogs([]);
     setWorkflowLogs([]);
   };
-
-  const prevStepsRef = useRef<string>('');
-  const lastLogCountRef = useRef<number>(0);
 
   const fetchWorkflowStatus = async () => {
     try {

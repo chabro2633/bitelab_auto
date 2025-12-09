@@ -3,7 +3,7 @@ import { getSession } from '../../../lib/session';
 
 import { getExecutionLogs, addExecutionLog, updateExecutionLog } from '../../../lib/auth';
 
-export async function GET(request: NextRequest) {
+export async function GET(_request: NextRequest) {
   const session = await getSession();
   
   if (!session) {
