@@ -26,7 +26,7 @@ export default function AdminDashboard() {
   const [userAllowedBrands, setUserAllowedBrands] = useState<string[]>([]);
   const [workflowStatus, setWorkflowStatus] = useState<{
     run: { id: string; status: string; conclusion?: string; created_at: string; updated_at: string; html_url: string };
-    jobs: Array<{ id: string; name: string; status: string; conclusion?: string; steps: Array<{ name: string; status: string; conclusion?: string }> }>;
+    jobs: Array<{ id: string; name: string; status: string; conclusion?: string; steps: Array<{ name: string; status: string; conclusion?: string; number: number }> }>;
     status: string;
     conclusion?: string;
   } | null>(null);
