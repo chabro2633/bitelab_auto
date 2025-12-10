@@ -93,10 +93,16 @@ export default function AdminDashboard() {
     stats: {
       totalSales: number;
       totalOrders: number;
+      validOrders: number;
       totalItems: number;
       averageOrderValue: number;
+      pendingAmount: number;
+      pendingOrders: number;
+      cancelRefundAmount: number;
+      cancelRefundOrders: number;
     };
     orderStatus: Array<{ status: string; label: string; count: number }>;
+    topProducts: Array<{ name: string; quantity: number; sales: number }>;
     recentOrders: Array<{
       orderId: string;
       orderDate: string;
@@ -1859,13 +1865,41 @@ export default function AdminDashboard() {
                       </div>
 
                       {/* 주요 지표 카드 */}
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                        {/* 확정 매출 (입금확인 이상, 취소/환불 제외) */}
                         <div className="bg-gradient-to-br from-green-50 to-green-100 border border-green-200 rounded-lg p-4">
-                          <div className="text-sm text-green-600 font-medium">오늘 총 매출</div>
+                          <div className="text-sm text-green-600 font-medium">확정 매출</div>
                           <div className="text-2xl font-bold text-green-800">
                             {realtimeSales.stats.totalSales.toLocaleString()}원
                           </div>
+                          <div className="text-xs text-green-600 mt-1">
+                            {realtimeSales.stats.validOrders || 0}건 (입금확인 이상)
+                          </div>
                         </div>
+                        {/* 입금대기 */}
+                        <div className="bg-gradient-to-br from-yellow-50 to-yellow-100 border border-yellow-200 rounded-lg p-4">
+                          <div className="text-sm text-yellow-600 font-medium">입금대기</div>
+                          <div className="text-2xl font-bold text-yellow-800">
+                            {(realtimeSales.stats.pendingAmount || 0).toLocaleString()}원
+                          </div>
+                          <div className="text-xs text-yellow-600 mt-1">
+                            {realtimeSales.stats.pendingOrders || 0}건
+                          </div>
+                        </div>
+                        {/* 취소/환불 */}
+                        <div className="bg-gradient-to-br from-red-50 to-red-100 border border-red-200 rounded-lg p-4">
+                          <div className="text-sm text-red-600 font-medium">취소/환불</div>
+                          <div className="text-2xl font-bold text-red-800">
+                            {(realtimeSales.stats.cancelRefundAmount || 0).toLocaleString()}원
+                          </div>
+                          <div className="text-xs text-red-600 mt-1">
+                            {realtimeSales.stats.cancelRefundOrders || 0}건
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* 추가 지표 */}
+                      <div className="grid grid-cols-3 gap-4">
                         <div className="bg-gradient-to-br from-blue-50 to-blue-100 border border-blue-200 rounded-lg p-4">
                           <div className="text-sm text-blue-600 font-medium">총 주문 수</div>
                           <div className="text-2xl font-bold text-blue-800">
@@ -1898,6 +1932,44 @@ export default function AdminDashboard() {
                               >
                                 <span className="text-gray-700">{status.label}</span>
                                 <span className="ml-1 font-semibold text-gray-900">{status.count}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 오늘의 TOP 5 상품 */}
+                      {realtimeSales.topProducts && realtimeSales.topProducts.length > 0 && (
+                        <div className="bg-white border border-gray-200 rounded-lg">
+                          <div className="px-4 py-3 border-b border-gray-200">
+                            <h3 className="text-sm font-medium text-gray-900">오늘의 TOP 5 상품</h3>
+                          </div>
+                          <div className="divide-y divide-gray-100">
+                            {realtimeSales.topProducts.map((product, index) => (
+                              <div key={product.name} className="px-4 py-3 hover:bg-gray-50 flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                  <div className={`w-7 h-7 rounded-full flex items-center justify-center text-sm font-bold ${
+                                    index === 0 ? 'bg-yellow-400 text-yellow-900' :
+                                    index === 1 ? 'bg-gray-300 text-gray-700' :
+                                    index === 2 ? 'bg-orange-300 text-orange-800' :
+                                    'bg-gray-100 text-gray-600'
+                                  }`}>
+                                    {index + 1}
+                                  </div>
+                                  <div className="text-sm font-medium text-gray-900 truncate max-w-[200px]" title={product.name}>
+                                    {product.name}
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-4 text-right">
+                                  <div>
+                                    <div className="text-xs text-gray-500">판매수량</div>
+                                    <div className="text-sm font-semibold text-blue-600">{product.quantity}개</div>
+                                  </div>
+                                  <div>
+                                    <div className="text-xs text-gray-500">매출</div>
+                                    <div className="text-sm font-semibold text-green-600">{product.sales.toLocaleString()}원</div>
+                                  </div>
+                                </div>
                               </div>
                             ))}
                           </div>

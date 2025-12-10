@@ -122,6 +122,20 @@ async function fetchOrders(accessToken: string, startDate: string, endDate: stri
   return response.json();
 }
 
+// 취소/환불 상태 코드
+const CANCEL_REFUND_STATUSES = ['C00', 'C10', 'C34', 'R00', 'R10', 'R12', 'E00', 'E10', 'E12'];
+// 입금대기 상태
+const PENDING_PAYMENT_STATUSES = ['N00'];
+
+// 주문이 유효한 매출인지 확인 (입금확인 이상, 취소/환불 제외)
+function isValidSalesOrder(orderStatus: string): boolean {
+  // 입금대기(N00)는 제외
+  if (PENDING_PAYMENT_STATUSES.includes(orderStatus)) return false;
+  // 취소/환불 상태는 제외
+  if (CANCEL_REFUND_STATUSES.includes(orderStatus)) return false;
+  return true;
+}
+
 // 주문 통계 계산
 function calculateOrderStats(orders: Array<{
   order_id: string;
@@ -131,26 +145,45 @@ function calculateOrderStats(orders: Array<{
   actual_order_amount?: { payment_amount: string };
   items?: Array<{ product_name: string; quantity: number; product_price: string; order_status: string }>;
 }>) {
-  let totalAmount = 0;
-  let totalOrders = 0;
+  let totalAmount = 0;  // 유효 매출 (입금확인 이상, 취소/환불 제외)
+  let totalOrders = 0;  // 전체 주문 수
+  let validOrders = 0;  // 유효 주문 수
   let totalItems = 0;
+  let pendingAmount = 0;  // 입금대기 금액
+  let pendingOrders = 0;  // 입금대기 주문 수
+  let cancelRefundAmount = 0;  // 취소/환불 금액
+  let cancelRefundOrders = 0;  // 취소/환불 주문 수
   const orderStatusCount: Record<string, number> = {};
   const paymentMethodCount: Record<string, number> = {};
 
   for (const order of orders) {
     totalOrders++;
-    // payment_amount는 루트 레벨에 있음 (예: "82100.00")
     const paymentAmount = parseFloat(order.payment_amount || order.actual_order_amount?.payment_amount || '0');
-    totalAmount += Math.round(paymentAmount);
+    const amount = Math.round(paymentAmount);
 
-    // 결제 방법은 배열로 제공됨 (예: ["card"])
+    // 결제 방법 집계
     const paymentMethod = order.payment_method?.[0] || 'unknown';
     paymentMethodCount[paymentMethod] = (paymentMethodCount[paymentMethod] || 0) + 1;
+
+    // 주문 내 첫 번째 아이템의 상태로 주문 상태 판단
+    const primaryStatus = order.items?.[0]?.order_status || 'unknown';
+
+    // 상태별 집계
+    if (PENDING_PAYMENT_STATUSES.includes(primaryStatus)) {
+      pendingAmount += amount;
+      pendingOrders++;
+    } else if (CANCEL_REFUND_STATUSES.includes(primaryStatus)) {
+      cancelRefundAmount += amount;
+      cancelRefundOrders++;
+    } else {
+      // 유효 매출 (입금확인 이상)
+      totalAmount += amount;
+      validOrders++;
+    }
 
     if (order.items) {
       for (const item of order.items) {
         totalItems += item.quantity || 1;
-        // order_status는 items 배열 안에 있음
         const status = item.order_status || 'unknown';
         orderStatusCount[status] = (orderStatusCount[status] || 0) + 1;
       }
@@ -158,13 +191,57 @@ function calculateOrderStats(orders: Array<{
   }
 
   return {
-    totalAmount,
-    totalOrders,
+    totalAmount,  // 유효 매출만
+    totalOrders,  // 전체 주문 수
+    validOrders,  // 유효 주문 수
     totalItems,
-    averageOrderValue: totalOrders > 0 ? Math.round(totalAmount / totalOrders) : 0,
+    averageOrderValue: validOrders > 0 ? Math.round(totalAmount / validOrders) : 0,
+    pendingAmount,  // 입금대기 금액
+    pendingOrders,  // 입금대기 주문 수
+    cancelRefundAmount,  // 취소/환불 금액
+    cancelRefundOrders,  // 취소/환불 주문 수
     orderStatusCount,
     paymentMethodCount,
   };
+}
+
+// 탑 상품 계산 (매출/판매수량 기준)
+function calculateTopProducts(orders: Array<{
+  items?: Array<{
+    product_name: string;
+    quantity: number;
+    product_price: string;
+    order_status: string;
+  }>;
+}>, limit: number = 5) {
+  const productStats: Record<string, { name: string; quantity: number; sales: number }> = {};
+
+  for (const order of orders) {
+    if (order.items) {
+      for (const item of order.items) {
+        // 취소/환불 상품은 제외
+        if (CANCEL_REFUND_STATUSES.includes(item.order_status)) continue;
+        // 입금대기 상품도 제외
+        if (PENDING_PAYMENT_STATUSES.includes(item.order_status)) continue;
+
+        const name = item.product_name || '상품명 없음';
+        const quantity = item.quantity || 1;
+        const price = parseFloat(item.product_price || '0');
+        const sales = Math.round(price * quantity);
+
+        if (!productStats[name]) {
+          productStats[name] = { name, quantity: 0, sales: 0 };
+        }
+        productStats[name].quantity += quantity;
+        productStats[name].sales += sales;
+      }
+    }
+  }
+
+  // 매출 기준으로 정렬하고 상위 N개 반환
+  return Object.values(productStats)
+    .sort((a, b) => b.sales - a.sales)
+    .slice(0, limit);
 }
 
 // 주문 상태 한글 변환
@@ -261,6 +338,9 @@ export async function GET(request: NextRequest) {
     // 통계 계산
     const stats = calculateOrderStats(orders);
 
+    // 탑 5 상품 계산
+    const topProducts = calculateTopProducts(orders, 5);
+
     // 주문 상태 라벨 변환
     const orderStatusWithLabels = Object.entries(stats.orderStatusCount).map(([status, count]) => ({
       status,
@@ -290,13 +370,21 @@ export async function GET(request: NextRequest) {
       mallId: CAFE24_MALL_ID,
       brandName: '바르너',
       stats: {
-        totalSales: stats.totalAmount,
-        totalOrders: stats.totalOrders,
+        totalSales: stats.totalAmount,  // 유효 매출 (입금확인 이상, 취소/환불 제외)
+        totalOrders: stats.totalOrders,  // 전체 주문 수
+        validOrders: stats.validOrders,  // 유효 주문 수
         totalItems: stats.totalItems,
         averageOrderValue: stats.averageOrderValue,
+        // 입금대기
+        pendingAmount: stats.pendingAmount,
+        pendingOrders: stats.pendingOrders,
+        // 취소/환불
+        cancelRefundAmount: stats.cancelRefundAmount,
+        cancelRefundOrders: stats.cancelRefundOrders,
       },
       orderStatus: orderStatusWithLabels,
       paymentMethods: stats.paymentMethodCount,
+      topProducts,
       recentOrders,
       lastUpdated: new Date().toISOString(),
     });
