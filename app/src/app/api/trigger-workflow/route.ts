@@ -10,13 +10,17 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const { startDate, endDate, brands = [] } = await request.json();
+    const { startDate, endDate, brands = [], scriptType = 'sales' } = await request.json();
 
     // GitHub Actions 워크플로우 트리거
     const githubToken = process.env.GITHUB_TOKEN;
     const repoOwner = process.env.GITHUB_REPO_OWNER || 'chabro2633';
     const repoName = process.env.GITHUB_REPO_NAME || 'bitelab_auto';
-    const workflowId = process.env.GITHUB_WORKFLOW_ID || 'scrape.yml';
+
+    // 스크립트 타입에 따라 워크플로우 파일 선택
+    const workflowId = scriptType === 'ads'
+      ? (process.env.GITHUB_ADS_WORKFLOW_ID || 'scrape-ads.yml')
+      : (process.env.GITHUB_WORKFLOW_ID || 'scrape.yml');
 
     if (!githubToken) {
       return NextResponse.json({
@@ -24,7 +28,7 @@ export async function POST(request: NextRequest) {
       }, { status: 500 });
     }
 
-    console.log('Triggering workflow for:', { startDate, endDate, brands });
+    console.log('Triggering workflow for:', { startDate, endDate, brands, scriptType, workflowId });
 
     // GitHub Actions 워크플로우 실행 (워크플로우 파일명 사용)
     const workflowResponse = await fetch(

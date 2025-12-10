@@ -14,10 +14,13 @@ import pandas as pd
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from playwright.sync_api import sync_playwright
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import logging
 import argparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import json
+import urllib.request
+import urllib.error
 
 # 로깅 설정
 logging.basicConfig(
@@ -34,6 +37,7 @@ GOOGLE_SHEET_NAME = os.getenv("GOOGLE_SHEET_NAME", "Cigro Sales")
 GOOGLE_CRED_FILE = os.getenv("GOOGLE_CRED_FILE", "google_sheet_credentials.json")
 EMAIL = os.getenv("EMAIL")
 PASSWORD = os.getenv("PASSWORD")
+SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL")  # Slack Incoming Webhook URL
 
 # 필수 환경 변수 검증
 if not EMAIL or not PASSWORD:
@@ -42,6 +46,103 @@ if not EMAIL or not PASSWORD:
     sys.exit(1)
 
 BRANDS = ["바르너", "릴리이브", "색동서울", "먼슬리픽", "보호리"]
+
+def send_slack_notification(success: bool, message: str, details: dict = None):
+    """
+    Slack Incoming Webhook으로 알림을 전송합니다.
+
+    Args:
+        success: 성공 여부
+        message: 메인 메시지
+        details: 추가 상세 정보 딕셔너리
+    """
+    if not SLACK_WEBHOOK_URL:
+        logger.warning("⚠️ SLACK_WEBHOOK_URL이 설정되지 않아 슬랙 알림을 건너뜁니다.")
+        return
+
+    # 이모지와 색상 설정
+    if success:
+        emoji = "✅"
+        color = "#36a64f"  # 녹색
+        status = "성공"
+    else:
+        emoji = "❌"
+        color = "#dc3545"  # 빨간색
+        status = "실패"
+
+    # Slack Block Kit 형식의 메시지 구성
+    blocks = [
+        {
+            "type": "header",
+            "text": {
+                "type": "plain_text",
+                "text": f"{emoji} Cigro 스크래핑 {status}",
+                "emoji": True
+            }
+        },
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": message
+            }
+        }
+    ]
+
+    # 상세 정보가 있으면 추가
+    if details:
+        fields = []
+        for key, value in details.items():
+            fields.append({
+                "type": "mrkdwn",
+                "text": f"*{key}:*\n{value}"
+            })
+
+        # 필드는 최대 10개까지, 2개씩 묶어서 표시
+        blocks.append({
+            "type": "section",
+            "fields": fields[:10]
+        })
+
+    # 타임스탬프 추가
+    KST = timezone(timedelta(hours=9))
+    now_kst = datetime.now(KST)
+    blocks.append({
+        "type": "context",
+        "elements": [
+            {
+                "type": "mrkdwn",
+                "text": f"🕐 {now_kst.strftime('%Y-%m-%d %H:%M:%S')} KST"
+            }
+        ]
+    })
+
+    payload = {
+        "blocks": blocks,
+        "attachments": [
+            {
+                "color": color,
+                "blocks": []
+            }
+        ]
+    }
+
+    try:
+        data = json.dumps(payload).encode('utf-8')
+        req = urllib.request.Request(
+            SLACK_WEBHOOK_URL,
+            data=data,
+            headers={'Content-Type': 'application/json'}
+        )
+        with urllib.request.urlopen(req, timeout=10) as response:
+            if response.status == 200:
+                logger.info("📨 슬랙 알림 전송 완료")
+            else:
+                logger.warning(f"⚠️ 슬랙 알림 전송 실패: HTTP {response.status}")
+    except urllib.error.URLError as e:
+        logger.warning(f"⚠️ 슬랙 알림 전송 실패: {e}")
+    except Exception as e:
+        logger.warning(f"⚠️ 슬랙 알림 전송 중 오류: {e}")
 
 def upload_to_google_sheets(df, sheet_name):
     """
@@ -300,11 +401,15 @@ def get_date_range(start_date_str, end_date_str):
     """시작 날짜와 종료 날짜 사이의 모든 날짜를 반환합니다."""
     dates = []
 
+    # KST (UTC+9) 타임존 설정
+    KST = timezone(timedelta(hours=9))
+
     if start_date_str:
         start_date = datetime.strptime(start_date_str, "%Y-%m-%d")
     else:
-        # 기본값: 어제 날짜
-        start_date = datetime.now() - timedelta(1)
+        # 기본값: KST 기준 어제 날짜
+        now_kst = datetime.now(KST)
+        start_date = now_kst - timedelta(1)
 
     if end_date_str:
         end_date = datetime.strptime(end_date_str, "%Y-%m-%d")
@@ -431,13 +536,40 @@ def main():
             logger.info(f"📈 성공률: {total_success}/{total_tasks} ({total_success/total_tasks*100:.1f}%)")
             logger.info("=" * 50)
 
-            if total_success > 0:
+            # 슬랙 알림 전송
+            success_rate = total_success / total_tasks * 100 if total_tasks > 0 else 0
+            is_success = total_success > 0
+
+            if len(date_range) == 1:
+                date_info = date_range[0]
+            else:
+                date_info = f"{date_range[0]} ~ {date_range[-1]}"
+
+            slack_details = {
+                "📅 기간": date_info,
+                "📋 브랜드": ", ".join(selected_brands),
+                "✅ 성공": f"{total_success}건",
+                "❌ 실패": f"{total_fail}건",
+                "📈 성공률": f"{success_rate:.1f}%"
+            }
+
+            if is_success:
+                slack_message = f"*{len(date_range)}일* x *{len(selected_brands)}개 브랜드* 스크래핑이 완료되었습니다."
                 logger.info("🎉 스크래핑 작업이 완료되었습니다!")
             else:
+                slack_message = "모든 스크래핑이 실패했습니다. 로그를 확인해주세요."
                 logger.error("❌ 모든 스크래핑이 실패했습니다.")
+
+            send_slack_notification(is_success, slack_message, slack_details)
 
         except Exception as e:
             logger.error(f"❌ 스크래핑 중 오류 발생: {e}")
+            # 예외 발생 시에도 슬랙 알림 전송
+            send_slack_notification(
+                success=False,
+                message=f"스크래핑 중 예외가 발생했습니다.",
+                details={"🔴 오류": str(e)}
+            )
         finally:
             browser.close()
 

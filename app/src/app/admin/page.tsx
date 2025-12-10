@@ -11,8 +11,11 @@ interface ExecutionResult {
   suggestions?: string[];
 }
 
+type ScriptTab = 'sales' | 'ads' | 'realtime';
+
 export default function AdminDashboard() {
   const router = useRouter();
+  const [activeTab, setActiveTab] = useState<ScriptTab>('sales');
   const [user, setUser] = useState<{ userId: string; username: string; role: string } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isExecuting, setIsExecuting] = useState(false);
@@ -77,11 +80,46 @@ export default function AdminDashboard() {
   }>>([]);
   const [showFailureLogs, setShowFailureLogs] = useState(false);
 
+  // 광고 탭용 state
+  const [adsStartDate, setAdsStartDate] = useState('');
+  const [adsEndDate, setAdsEndDate] = useState('');
+  const [selectedAdsBrands, setSelectedAdsBrands] = useState<string[]>([]);
+
+  // 실시간 매출 탭용 state
+  const [realtimeSales, setRealtimeSales] = useState<{
+    success: boolean;
+    date: string;
+    brandName: string;
+    stats: {
+      totalSales: number;
+      totalOrders: number;
+      totalItems: number;
+      averageOrderValue: number;
+    };
+    orderStatus: Array<{ status: string; label: string; count: number }>;
+    recentOrders: Array<{
+      orderId: string;
+      orderDate: string;
+      status: string;
+      amount: number;
+      productName: string;
+      itemCount: number;
+    }>;
+    lastUpdated: string;
+  } | null>(null);
+  const [realtimeLoading, setRealtimeLoading] = useState(false);
+  const [realtimeError, setRealtimeError] = useState<string | null>(null);
+  const [autoRefresh, setAutoRefresh] = useState(false);
+  const [autoRefreshInterval, setAutoRefreshInterval] = useState<NodeJS.Timeout | null>(null);
+  const [cafe24NeedsAuth, setCafe24NeedsAuth] = useState(false);
+  const [cafe24AuthUrl, setCafe24AuthUrl] = useState<string | null>(null);
+
   // Refs (must be at the top level)
   const prevStepsRef = useRef<string>('');
   const lastLogCountRef = useRef<number>(0);
 
   const availableBrands = ['바르너', '릴리이브', '보호리', '먼슬리픽', '색동서울'];
+  const availableAdsBrands = ['바르너', '릴리이브'];  // 광고용 브랜드
 
   // 세션 확인
   useEffect(() => {
@@ -124,8 +162,11 @@ export default function AdminDashboard() {
       if (pollingInterval) {
         clearInterval(pollingInterval);
       }
+      if (autoRefreshInterval) {
+        clearInterval(autoRefreshInterval);
+      }
     };
-  }, [pollingInterval]);
+  }, [pollingInterval, autoRefreshInterval]);
 
   // 컴포넌트 마운트 시 실행 로그 가져오기
   useEffect(() => {
@@ -338,6 +379,56 @@ export default function AdminDashboard() {
       fetchScheduleFailureLogs();
     } catch (error) {
       console.error('Failed to ignore failure:', error);
+    }
+  };
+
+  // 실시간 매출 데이터 가져오기
+  const fetchRealtimeSales = async () => {
+    setRealtimeLoading(true);
+    setRealtimeError(null);
+    setCafe24NeedsAuth(false);
+    try {
+      const response = await fetch('/api/cafe24');
+      const data = await response.json();
+      if (data.success) {
+        setRealtimeSales(data);
+        setCafe24NeedsAuth(false);
+      } else if (data.needsAuth) {
+        setCafe24NeedsAuth(true);
+        setCafe24AuthUrl(data.authUrl);
+        setRealtimeError(data.error || 'Cafe24 인증이 필요합니다');
+      } else {
+        setRealtimeError(data.error || '데이터를 가져올 수 없습니다');
+      }
+    } catch (error) {
+      console.error('Failed to fetch realtime sales:', error);
+      setRealtimeError('네트워크 오류가 발생했습니다');
+    } finally {
+      setRealtimeLoading(false);
+    }
+  };
+
+  // 실시간 탭으로 이동 시 자동 조회
+  useEffect(() => {
+    if (activeTab === 'realtime' && !realtimeSales && !realtimeLoading) {
+      fetchRealtimeSales();
+    }
+  }, [activeTab, realtimeSales, realtimeLoading]);
+
+  // 자동 새로고침 토글
+  const toggleAutoRefresh = () => {
+    if (autoRefresh) {
+      if (autoRefreshInterval) {
+        clearInterval(autoRefreshInterval);
+        setAutoRefreshInterval(null);
+      }
+      setAutoRefresh(false);
+    } else {
+      setAutoRefresh(true);
+      const interval = setInterval(() => {
+        fetchRealtimeSales();
+      }, 60000); // 1분마다 새로고침
+      setAutoRefreshInterval(interval);
     }
   };
 
@@ -653,7 +744,88 @@ export default function AdminDashboard() {
     handleLogout();
   };
 
+  // 광고 탭 - 브랜드 선택 핸들러
+  const handleAdsBrandToggle = (brand: string) => {
+    setSelectedAdsBrands(prev =>
+      prev.includes(brand)
+        ? prev.filter(b => b !== brand)
+        : [...prev, brand]
+    );
+  };
 
+  const handleSelectAllAdsBrands = () => {
+    setSelectedAdsBrands(availableAdsBrands);
+  };
+
+  const handleDeselectAllAdsBrands = () => {
+    setSelectedAdsBrands([]);
+  };
+
+  // 광고 스크립트 실행
+  const executeAdsScript = async () => {
+    setIsExecuting(true);
+    setResult(null);
+    setShowConsole(true);
+    clearConsole();
+
+    const controller = new AbortController();
+    setAbortController(controller);
+
+    addConsoleLog('🚀 Cigro 광고 데이터 스크래핑 시작');
+    addConsoleLog(`📋 선택된 브랜드: ${selectedAdsBrands.length > 0 ? selectedAdsBrands.join(', ') : '모든 브랜드'}`);
+
+    if (adsStartDate && adsEndDate) {
+      addConsoleLog(`📅 스크래핑 기간: ${adsStartDate} ~ ${adsEndDate}`);
+    } else if (adsStartDate) {
+      addConsoleLog(`📅 스크래핑 날짜: ${adsStartDate}`);
+    } else {
+      addConsoleLog(`📅 스크래핑 날짜: 어제 날짜`);
+    }
+
+    try {
+      addConsoleLog('📡 GitHub Actions 워크플로우 트리거 중...');
+
+      const response = await fetch('/api/trigger-workflow', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          scriptType: 'ads',
+          startDate: adsStartDate || undefined,
+          endDate: adsEndDate || undefined,
+          brands: selectedAdsBrands.length > 0 ? selectedAdsBrands : undefined,
+        }),
+        signal: controller.signal,
+      });
+
+      addConsoleLog('📥 서버 응답 수신 중...');
+      const data = await response.json();
+
+      if (data.success) {
+        addConsoleLog('✅ 광고 스크래핑 워크플로우가 트리거되었습니다!');
+        addConsoleLog(`🔗 워크플로우 상태 확인: ${data.workflowUrl}`);
+        addConsoleLog('⏳ 스크래핑이 백그라운드에서 실행 중입니다.');
+        setTimeout(() => startPolling(), 2000);
+      } else {
+        addConsoleLog(`❌ 워크플로우 트리거 실패: ${data.error}`);
+      }
+
+      setResult({
+        success: data.success,
+        output: data.success ? '광고 스크래핑 워크플로우가 트리거되었습니다.' : data.error,
+        error: data.success ? '' : data.error,
+      });
+    } catch (error: unknown) {
+      if ((error as Error).name === 'AbortError') {
+        addConsoleLog('🛑 스크래핑이 중단되었습니다.');
+      } else {
+        addConsoleLog(`❌ 네트워크 오류: ${error}`);
+        setResult({ success: false, output: '', error: 'Failed to trigger workflow' });
+      }
+    } finally {
+      setIsExecuting(false);
+      setAbortController(null);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -923,23 +1095,64 @@ export default function AdminDashboard() {
           ) : null}
         </div>
 
+        {/* 탭 네비게이션 */}
+        <div className="px-4 sm:px-0 mb-4">
+          <div className="border-b border-gray-200">
+            <nav className="-mb-px flex space-x-8">
+              <button
+                onClick={() => setActiveTab('sales')}
+                className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                  activeTab === 'sales'
+                    ? 'border-indigo-500 text-indigo-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                📊 판매 데이터 스크래핑
+              </button>
+              <button
+                onClick={() => setActiveTab('ads')}
+                className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                  activeTab === 'ads'
+                    ? 'border-orange-500 text-orange-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                📢 광고 데이터 스크래핑
+              </button>
+              <button
+                onClick={() => setActiveTab('realtime')}
+                className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                  activeTab === 'realtime'
+                    ? 'border-green-500 text-green-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                📈 실시간 매출 (바르너)
+              </button>
+            </nav>
+          </div>
+        </div>
+
         <div className="px-4 py-6 sm:px-0">
           <div className="bg-white overflow-hidden shadow rounded-lg">
             <div className="px-4 py-5 sm:p-6">
-              <h2 className="text-lg font-medium text-gray-900 mb-4">
-                Python Script Execution
-              </h2>
-              
-              <div className="space-y-4">
-                <div className="bg-blue-50 border border-blue-200 rounded-md p-4">
-                  <h3 className="text-sm font-medium text-blue-800 mb-2">스크립트 정보</h3>
-                  <ul className="text-sm text-blue-700 space-y-1">
-                    <li>• <strong>기능:</strong> Cigro 웹사이트에서 어제 날짜의 판매 데이터를 스크래핑</li>
-                    <li>• <strong>브랜드:</strong> 바르너, 릴리이브, 보호리, 먼슬리픽, 색동서울</li>
-                    <li>• <strong>저장소:</strong> Google Sheets (Cigro Sales 스프레드시트)</li>
-                    <li>• <strong>중복 처리:</strong> 같은 날짜 데이터가 있으면 내용을 비교하여 업데이트</li>
-                  </ul>
-                </div>
+              {/* 판매 데이터 탭 */}
+              {activeTab === 'sales' && (
+                <>
+                  <h2 className="text-lg font-medium text-gray-900 mb-4">
+                    판매 데이터 스크래핑
+                  </h2>
+
+                  <div className="space-y-4">
+                    <div className="bg-blue-50 border border-blue-200 rounded-md p-4">
+                      <h3 className="text-sm font-medium text-blue-800 mb-2">스크립트 정보</h3>
+                      <ul className="text-sm text-blue-700 space-y-1">
+                        <li>• <strong>기능:</strong> Cigro 웹사이트에서 어제 날짜의 판매 데이터를 스크래핑</li>
+                        <li>• <strong>브랜드:</strong> 바르너, 릴리이브, 보호리, 먼슬리픽, 색동서울</li>
+                        <li>• <strong>저장소:</strong> Google Sheets (Cigro Sales 스프레드시트)</li>
+                        <li>• <strong>중복 처리:</strong> 같은 날짜 데이터가 있으면 내용을 비교하여 업데이트</li>
+                      </ul>
+                    </div>
 
                 {/* 브랜드 선택 섹션 */}
                 <div className="mb-6">
@@ -1380,6 +1593,355 @@ export default function AdminDashboard() {
                     )}
                   </div>
                 </div>
+              )}
+            </>
+          )}
+
+          {/* 광고 데이터 탭 */}
+              {activeTab === 'ads' && (
+                <>
+                  <h2 className="text-lg font-medium text-gray-900 mb-4">
+                    광고 데이터 스크래핑
+                  </h2>
+
+                  <div className="space-y-4">
+                    <div className="bg-orange-50 border border-orange-200 rounded-md p-4">
+                      <h3 className="text-sm font-medium text-orange-800 mb-2">스크립트 정보</h3>
+                      <ul className="text-sm text-orange-700 space-y-1">
+                        <li>• <strong>기능:</strong> Cigro 웹사이트에서 어제 날짜의 광고 데이터를 스크래핑</li>
+                        <li>• <strong>브랜드:</strong> 바르너, 릴리이브</li>
+                        <li>• <strong>저장소:</strong> Google Sheets (브랜드명_광고 시트)</li>
+                        <li>• <strong>중복 처리:</strong> 같은 날짜 데이터가 있으면 내용을 비교하여 업데이트</li>
+                      </ul>
+                    </div>
+
+                    {/* 광고 브랜드 선택 */}
+                    <div className="mb-6">
+                      <label className="block text-sm font-medium text-gray-700 mb-3">
+                        브랜드 선택 (선택사항)
+                      </label>
+                      <div className="flex flex-wrap gap-2 mb-3">
+                        <button
+                          type="button"
+                          onClick={handleSelectAllAdsBrands}
+                          className="px-3 py-1 text-xs bg-orange-100 text-orange-700 rounded-md hover:bg-orange-200"
+                        >
+                          전체 선택
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleDeselectAllAdsBrands}
+                          className="px-3 py-1 text-xs bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200"
+                        >
+                          전체 해제
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                        {availableAdsBrands.map((brand) => (
+                          <label key={brand} className="flex items-center space-x-2 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={selectedAdsBrands.includes(brand)}
+                              onChange={() => handleAdsBrandToggle(brand)}
+                              className="rounded border-gray-300 text-orange-600 focus:ring-orange-500"
+                            />
+                            <span className="text-sm text-gray-700">{brand}</span>
+                          </label>
+                        ))}
+                      </div>
+                      <p className="mt-2 text-xs text-gray-500">
+                        광고 데이터는 바르너, 릴리이브 브랜드만 지원합니다.
+                      </p>
+                    </div>
+
+                    {/* 날짜 선택 */}
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                      <div>
+                        <label htmlFor="ads-start-date" className="block text-sm font-medium text-gray-700">
+                          시작 날짜 (선택사항)
+                        </label>
+                        <input
+                          type="date"
+                          id="ads-start-date"
+                          className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-orange-500 focus:border-orange-500 sm:text-sm text-gray-900"
+                          value={adsStartDate}
+                          onChange={(e) => setAdsStartDate(e.target.value)}
+                        />
+                        <p className="mt-1 text-xs text-gray-500">비워두면 어제 날짜로 자동 실행됩니다.</p>
+                      </div>
+                      <div>
+                        <label htmlFor="ads-end-date" className="block text-sm font-medium text-gray-700">
+                          종료 날짜 (선택사항)
+                        </label>
+                        <input
+                          type="date"
+                          id="ads-end-date"
+                          className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-orange-500 focus:border-orange-500 sm:text-sm text-gray-900"
+                          value={adsEndDate}
+                          min={adsStartDate}
+                          onChange={(e) => setAdsEndDate(e.target.value)}
+                          disabled={!adsStartDate}
+                        />
+                        <p className="mt-1 text-xs text-gray-500">
+                          {adsStartDate ? '범위 스크래핑 시 종료 날짜를 선택하세요.' : '시작 날짜를 먼저 선택하세요.'}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* 실행 버튼 */}
+                    <div className="flex gap-3">
+                      <button
+                        onClick={executeAdsScript}
+                        disabled={isExecuting}
+                        className="bg-orange-600 hover:bg-orange-700 disabled:bg-gray-400 text-white px-6 py-3 rounded-md text-sm font-medium flex items-center gap-2"
+                      >
+                        {isExecuting ? (
+                          <>
+                            <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/>
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
+                            </svg>
+                            스크래핑 중...
+                          </>
+                        ) : (
+                          <>
+                            <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                            </svg>
+                            광고 데이터 스크래핑 실행
+                          </>
+                        )}
+                      </button>
+                      <button
+                        onClick={() => setShowConsole(!showConsole)}
+                        className="bg-gray-600 hover:bg-gray-700 text-white px-4 py-3 rounded-md text-sm font-medium"
+                      >
+                        {showConsole ? '콘솔 숨기기' : '콘솔 보기'}
+                      </button>
+                      {isExecuting && (
+                        <button
+                          onClick={abortScript}
+                          className="bg-red-600 hover:bg-red-700 text-white px-4 py-3 rounded-md text-sm font-medium"
+                        >
+                          스크래핑 중단
+                        </button>
+                      )}
+                    </div>
+
+                    {/* 콘솔 */}
+                    {showConsole && (
+                      <div className="mt-4 bg-gray-900 rounded-lg p-4 font-mono text-sm h-64 overflow-y-auto">
+                        <div className="text-green-400 mb-2">$ 광고 스크래핑 콘솔</div>
+                        <div className="space-y-1">
+                          {consoleLogs.length === 0 ? (
+                            <div className="text-gray-500 italic">콘솔이 비어있습니다.</div>
+                          ) : (
+                            consoleLogs.map((log, index) => {
+                              let logColor = 'text-gray-300';
+                              if (log.includes('✅') || log.includes('🎉')) logColor = 'text-green-400';
+                              else if (log.includes('❌')) logColor = 'text-red-400';
+                              else if (log.includes('⚠️')) logColor = 'text-yellow-400';
+                              else if (log.includes('📡') || log.includes('🔄')) logColor = 'text-blue-400';
+                              return <div key={index} className={logColor}>{log}</div>;
+                            })
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* 결과 */}
+                    {result && (
+                      <div className={`mt-4 p-4 rounded-md ${result.success ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
+                        <div className={`text-sm font-medium ${result.success ? 'text-green-800' : 'text-red-800'}`}>
+                          {result.success ? '✅ 성공' : '❌ 실패'}
+                        </div>
+                        {result.output && <p className="mt-1 text-sm text-gray-700">{result.output}</p>}
+                        {result.error && <p className="mt-1 text-sm text-red-700">{result.error}</p>}
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+
+              {/* 실시간 매출 탭 */}
+              {activeTab === 'realtime' && (
+                <>
+                  <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-lg font-medium text-gray-900">
+                      바르너 실시간 매출 현황
+                    </h2>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={toggleAutoRefresh}
+                        className={`px-3 py-1 text-xs rounded-md ${
+                          autoRefresh
+                            ? 'bg-green-100 text-green-700 hover:bg-green-200'
+                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                        }`}
+                      >
+                        {autoRefresh ? '🔄 자동 새로고침 ON' : '자동 새로고침 OFF'}
+                      </button>
+                      <button
+                        onClick={fetchRealtimeSales}
+                        disabled={realtimeLoading}
+                        className="px-3 py-1 text-xs bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50"
+                      >
+                        {realtimeLoading ? '로딩 중...' : '새로고침'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Cafe24 인증 필요 */}
+                  {cafe24NeedsAuth && cafe24AuthUrl && (
+                    <div className="mb-4 p-6 bg-yellow-50 border border-yellow-200 rounded-lg">
+                      <div className="flex items-start gap-4">
+                        <div className="text-3xl">🔐</div>
+                        <div className="flex-1">
+                          <div className="text-lg font-medium text-yellow-800 mb-2">Cafe24 인증이 필요합니다</div>
+                          <div className="text-sm text-yellow-700 mb-4">
+                            실시간 매출 데이터를 조회하려면 Cafe24 쇼핑몰 관리자 권한으로 인증해야 합니다.
+                            아래 버튼을 클릭하여 Cafe24에 로그인하고 앱 권한을 승인해주세요.
+                          </div>
+                          <a
+                            href={cafe24AuthUrl}
+                            className="inline-flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors"
+                          >
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1" />
+                            </svg>
+                            Cafe24 로그인하여 인증하기
+                          </a>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 에러 메시지 (인증 필요가 아닌 경우) */}
+                  {realtimeError && !cafe24NeedsAuth && (
+                    <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-md">
+                      <div className="text-sm text-red-800">❌ {realtimeError}</div>
+                      <div className="mt-2 text-xs text-red-600">
+                        Cafe24 API 연동에 문제가 있을 수 있습니다. 앱 권한을 확인해주세요.
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 로딩 상태 */}
+                  {realtimeLoading && !realtimeSales && (
+                    <div className="flex items-center justify-center py-12">
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600"></div>
+                      <span className="ml-2 text-gray-600">매출 데이터를 불러오는 중...</span>
+                    </div>
+                  )}
+
+                  {/* 매출 데이터 */}
+                  {realtimeSales && (
+                    <div className="space-y-6">
+                      {/* 마지막 업데이트 시간 */}
+                      <div className="text-sm text-gray-500 text-right">
+                        마지막 업데이트: {new Date(realtimeSales.lastUpdated).toLocaleString('ko-KR')}
+                        {autoRefresh && <span className="ml-2 text-green-600">(1분마다 자동 새로고침)</span>}
+                      </div>
+
+                      {/* 주요 지표 카드 */}
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <div className="bg-gradient-to-br from-green-50 to-green-100 border border-green-200 rounded-lg p-4">
+                          <div className="text-sm text-green-600 font-medium">오늘 총 매출</div>
+                          <div className="text-2xl font-bold text-green-800">
+                            {realtimeSales.stats.totalSales.toLocaleString()}원
+                          </div>
+                        </div>
+                        <div className="bg-gradient-to-br from-blue-50 to-blue-100 border border-blue-200 rounded-lg p-4">
+                          <div className="text-sm text-blue-600 font-medium">총 주문 수</div>
+                          <div className="text-2xl font-bold text-blue-800">
+                            {realtimeSales.stats.totalOrders}건
+                          </div>
+                        </div>
+                        <div className="bg-gradient-to-br from-purple-50 to-purple-100 border border-purple-200 rounded-lg p-4">
+                          <div className="text-sm text-purple-600 font-medium">총 상품 수</div>
+                          <div className="text-2xl font-bold text-purple-800">
+                            {realtimeSales.stats.totalItems}개
+                          </div>
+                        </div>
+                        <div className="bg-gradient-to-br from-orange-50 to-orange-100 border border-orange-200 rounded-lg p-4">
+                          <div className="text-sm text-orange-600 font-medium">평균 주문금액</div>
+                          <div className="text-2xl font-bold text-orange-800">
+                            {realtimeSales.stats.averageOrderValue.toLocaleString()}원
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* 주문 상태별 현황 */}
+                      {realtimeSales.orderStatus.length > 0 && (
+                        <div className="bg-white border border-gray-200 rounded-lg p-4">
+                          <h3 className="text-sm font-medium text-gray-900 mb-3">주문 상태별 현황</h3>
+                          <div className="flex flex-wrap gap-2">
+                            {realtimeSales.orderStatus.map((status) => (
+                              <div
+                                key={status.status}
+                                className="px-3 py-1 bg-gray-100 rounded-full text-sm"
+                              >
+                                <span className="text-gray-700">{status.label}</span>
+                                <span className="ml-1 font-semibold text-gray-900">{status.count}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 최근 주문 목록 */}
+                      {realtimeSales.recentOrders.length > 0 && (
+                        <div className="bg-white border border-gray-200 rounded-lg">
+                          <div className="px-4 py-3 border-b border-gray-200">
+                            <h3 className="text-sm font-medium text-gray-900">최근 주문 (최대 10건)</h3>
+                          </div>
+                          <div className="divide-y divide-gray-100">
+                            {realtimeSales.recentOrders.map((order) => (
+                              <div key={order.orderId} className="px-4 py-3 hover:bg-gray-50">
+                                <div className="flex items-center justify-between">
+                                  <div>
+                                    <div className="text-sm font-medium text-gray-900">
+                                      {order.productName}
+                                      {order.itemCount > 1 && (
+                                        <span className="text-gray-500"> 외 {order.itemCount - 1}개</span>
+                                      )}
+                                    </div>
+                                    <div className="text-xs text-gray-500">
+                                      주문번호: {order.orderId} | {new Date(order.orderDate).toLocaleString('ko-KR')}
+                                    </div>
+                                  </div>
+                                  <div className="text-right">
+                                    <div className="text-sm font-semibold text-gray-900">
+                                      {order.amount.toLocaleString()}원
+                                    </div>
+                                    <div className={`text-xs px-2 py-0.5 rounded-full inline-block ${
+                                      order.status.includes('완료') ? 'bg-green-100 text-green-700' :
+                                      order.status.includes('배송') ? 'bg-blue-100 text-blue-700' :
+                                      order.status.includes('준비') ? 'bg-yellow-100 text-yellow-700' :
+                                      'bg-gray-100 text-gray-700'
+                                    }`}>
+                                      {order.status}
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 데이터 없음 */}
+                      {realtimeSales.recentOrders.length === 0 && (
+                        <div className="text-center py-8 text-gray-500">
+                          <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                          </svg>
+                          <p className="mt-2">오늘 주문이 아직 없습니다.</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </>
               )}
             </div>
           </div>
