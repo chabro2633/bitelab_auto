@@ -384,26 +384,39 @@ export default function AdminDashboard() {
 
   // 실시간 매출 데이터 가져오기
   const fetchRealtimeSales = async () => {
+    console.log('[Cafe24] 실시간 매출 데이터 조회 시작...');
     setRealtimeLoading(true);
     setRealtimeError(null);
     setCafe24NeedsAuth(false);
     try {
+      console.log('[Cafe24] API 호출 중: /api/cafe24');
       const response = await fetch('/api/cafe24');
+      console.log('[Cafe24] API 응답 상태:', response.status, response.statusText);
       const data = await response.json();
+      console.log('[Cafe24] API 응답 데이터:', data);
+
       if (data.success) {
+        console.log('[Cafe24] ✅ 매출 데이터 조회 성공:', {
+          date: data.date,
+          totalSales: data.stats?.totalSales,
+          totalOrders: data.stats?.totalOrders
+        });
         setRealtimeSales(data);
         setCafe24NeedsAuth(false);
       } else if (data.needsAuth) {
+        console.log('[Cafe24] ⚠️ 인증 필요:', data.authUrl);
         setCafe24NeedsAuth(true);
         setCafe24AuthUrl(data.authUrl);
         setRealtimeError(data.error || 'Cafe24 인증이 필요합니다');
       } else {
+        console.log('[Cafe24] ❌ 데이터 조회 실패:', data.error);
         setRealtimeError(data.error || '데이터를 가져올 수 없습니다');
       }
     } catch (error) {
-      console.error('Failed to fetch realtime sales:', error);
+      console.error('[Cafe24] ❌ 네트워크 오류:', error);
       setRealtimeError('네트워크 오류가 발생했습니다');
     } finally {
+      console.log('[Cafe24] 조회 완료');
       setRealtimeLoading(false);
     }
   };
