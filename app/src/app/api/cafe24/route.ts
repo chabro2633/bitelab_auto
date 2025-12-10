@@ -126,9 +126,10 @@ async function fetchOrders(accessToken: string, startDate: string, endDate: stri
 function calculateOrderStats(orders: Array<{
   order_id: string;
   order_date: string;
-  order_status: string;
-  actual_payment: { payment_method: string; payment_amount: string };
-  items?: Array<{ product_name: string; quantity: number; product_price: string }>;
+  payment_amount: string;
+  payment_method: string[];
+  actual_order_amount?: { payment_amount: string };
+  items?: Array<{ product_name: string; quantity: number; product_price: string; order_status: string }>;
 }>) {
   let totalAmount = 0;
   let totalOrders = 0;
@@ -138,17 +139,20 @@ function calculateOrderStats(orders: Array<{
 
   for (const order of orders) {
     totalOrders++;
-    totalAmount += parseInt(order.actual_payment?.payment_amount || '0', 10);
+    // payment_amount는 루트 레벨에 있음 (예: "82100.00")
+    const paymentAmount = parseFloat(order.payment_amount || order.actual_order_amount?.payment_amount || '0');
+    totalAmount += Math.round(paymentAmount);
 
-    const status = order.order_status || 'unknown';
-    orderStatusCount[status] = (orderStatusCount[status] || 0) + 1;
-
-    const paymentMethod = order.actual_payment?.payment_method || 'unknown';
+    // 결제 방법은 배열로 제공됨 (예: ["card"])
+    const paymentMethod = order.payment_method?.[0] || 'unknown';
     paymentMethodCount[paymentMethod] = (paymentMethodCount[paymentMethod] || 0) + 1;
 
     if (order.items) {
       for (const item of order.items) {
         totalItems += item.quantity || 1;
+        // order_status는 items 배열 안에 있음
+        const status = item.order_status || 'unknown';
+        orderStatusCount[status] = (orderStatusCount[status] || 0) + 1;
       }
     }
   }
@@ -254,11 +258,6 @@ export async function GET(request: NextRequest) {
     const ordersData = await fetchOrders(accessToken, date, date);
     const orders = ordersData.orders || [];
 
-    // 디버깅: 첫 번째 주문 데이터 구조 확인
-    if (orders.length > 0) {
-      console.log('[Cafe24] First order structure:', JSON.stringify(orders[0], null, 2));
-    }
-
     // 통계 계산
     const stats = calculateOrderStats(orders);
 
@@ -273,14 +272,14 @@ export async function GET(request: NextRequest) {
     const recentOrders = orders.slice(0, 10).map((order: {
       order_id: string;
       order_date: string;
-      order_status: string;
-      actual_payment: { payment_amount: string };
-      items?: Array<{ product_name: string }>;
+      payment_amount: string;
+      actual_order_amount?: { payment_amount: string };
+      items?: Array<{ product_name: string; order_status: string }>;
     }) => ({
       orderId: order.order_id,
       orderDate: order.order_date,
-      status: getOrderStatusLabel(order.order_status),
-      amount: parseInt(order.actual_payment?.payment_amount || '0', 10),
+      status: getOrderStatusLabel(order.items?.[0]?.order_status || 'unknown'),
+      amount: Math.round(parseFloat(order.payment_amount || order.actual_order_amount?.payment_amount || '0')),
       productName: order.items?.[0]?.product_name || '상품정보 없음',
       itemCount: order.items?.length || 0,
     }));
@@ -300,8 +299,6 @@ export async function GET(request: NextRequest) {
       paymentMethods: stats.paymentMethodCount,
       recentOrders,
       lastUpdated: new Date().toISOString(),
-      // 디버깅용: 첫 번째 주문 원본 데이터
-      _debug_firstOrder: orders.length > 0 ? orders[0] : null,
     });
 
     // 토큰이 갱신되었으면 쿠키 업데이트
