@@ -109,7 +109,7 @@ async function fetchOrders(accessToken: string, startDate: string, endDate: stri
     headers: {
       'Authorization': `Bearer ${accessToken}`,
       'Content-Type': 'application/json',
-      'X-Cafe24-Api-Version': '2024-03-01',
+      'X-Cafe24-Api-Version': '2025-06-01',
     },
   });
 
