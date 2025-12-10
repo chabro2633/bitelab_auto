@@ -16,7 +16,24 @@ type ScriptTab = 'sales' | 'ads' | 'realtime';
 export default function AdminDashboard() {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<ScriptTab>('sales');
-  const [user, setUser] = useState<{ userId: string; username: string; role: string } | null>(null);
+  const [user, setUser] = useState<{
+    userId: string;
+    username: string;
+    role: string;
+    mustChangePassword?: boolean;
+    permissions?: {
+      canViewSales: boolean;
+      canRunScraping: boolean;
+      canManageUsers: boolean;
+      canViewLogs: boolean;
+      canManageSchedule: boolean;
+    };
+  } | null>(null);
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+  const [passwordSuccess, setPasswordSuccess] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isExecuting, setIsExecuting] = useState(false);
   const [result, setResult] = useState<ExecutionResult | null>(null);
@@ -137,6 +154,16 @@ export default function AdminDashboard() {
         if (data.authenticated) {
           setUser(data.user);
           setUserAllowedBrands(data.user.role === 'admin' ? availableBrands : data.user.allowedBrands || []);
+
+          // 비밀번호 변경 필요 여부 확인
+          if (data.user.mustChangePassword) {
+            setShowPasswordModal(true);
+          }
+
+          // sales_viewer는 실시간 매출 탭만 접근 가능
+          if (data.user.role === 'sales_viewer') {
+            setActiveTab('realtime');
+          }
         } else {
           router.push('/login');
         }
@@ -461,6 +488,56 @@ export default function AdminDashboard() {
     } catch (error) {
       console.error('Logout error:', error);
     }
+  };
+
+  // 비밀번호 변경 처리
+  const handlePasswordChange = async () => {
+    setPasswordError('');
+    setPasswordSuccess(false);
+
+    if (newPassword.length < 6) {
+      setPasswordError('비밀번호는 최소 6자 이상이어야 합니다.');
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      setPasswordError('비밀번호가 일치하지 않습니다.');
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ newPassword }),
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        setPasswordSuccess(true);
+        setUser(prev => prev ? { ...prev, mustChangePassword: false } : null);
+        setTimeout(() => {
+          setShowPasswordModal(false);
+          setNewPassword('');
+          setConfirmPassword('');
+          setPasswordSuccess(false);
+        }, 1500);
+      } else {
+        setPasswordError(data.error || '비밀번호 변경에 실패했습니다.');
+      }
+    } catch (error) {
+      console.error('Password change error:', error);
+      setPasswordError('비밀번호 변경 중 오류가 발생했습니다.');
+    }
+  };
+
+  // 권한 확인 헬퍼 함수
+  const canAccessTab = (tab: ScriptTab): boolean => {
+    if (!user) return false;
+    if (user.role === 'admin') return true;
+    if (user.role === 'sales_viewer') return tab === 'realtime';
+    return tab !== 'realtime'; // user 권한은 스크래핑만
   };
 
   // 로딩 중이면 로딩 화면 표시
@@ -1120,36 +1197,42 @@ export default function AdminDashboard() {
         <div className="px-4 sm:px-0 mb-4">
           <div className="border-b border-gray-200">
             <nav className="-mb-px flex space-x-8">
-              <button
-                onClick={() => setActiveTab('sales')}
-                className={`py-4 px-1 border-b-2 font-medium text-sm ${
-                  activeTab === 'sales'
-                    ? 'border-indigo-500 text-indigo-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
-              >
-                📊 판매 데이터 스크래핑
-              </button>
-              <button
-                onClick={() => setActiveTab('ads')}
-                className={`py-4 px-1 border-b-2 font-medium text-sm ${
-                  activeTab === 'ads'
-                    ? 'border-orange-500 text-orange-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
-              >
-                📢 광고 데이터 스크래핑
-              </button>
-              <button
-                onClick={() => setActiveTab('realtime')}
-                className={`py-4 px-1 border-b-2 font-medium text-sm ${
-                  activeTab === 'realtime'
-                    ? 'border-green-500 text-green-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
-              >
-                📈 실시간 매출 (바르너)
-              </button>
+              {canAccessTab('sales') && (
+                <button
+                  onClick={() => setActiveTab('sales')}
+                  className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                    activeTab === 'sales'
+                      ? 'border-indigo-500 text-indigo-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  }`}
+                >
+                  판매 데이터 스크래핑
+                </button>
+              )}
+              {canAccessTab('ads') && (
+                <button
+                  onClick={() => setActiveTab('ads')}
+                  className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                    activeTab === 'ads'
+                      ? 'border-orange-500 text-orange-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  }`}
+                >
+                  광고 데이터 스크래핑
+                </button>
+              )}
+              {canAccessTab('realtime') && (
+                <button
+                  onClick={() => setActiveTab('realtime')}
+                  className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                    activeTab === 'realtime'
+                      ? 'border-green-500 text-green-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  }`}
+                >
+                  실시간 매출 (바르너)
+                </button>
+              )}
             </nav>
           </div>
         </div>
@@ -2034,6 +2117,80 @@ export default function AdminDashboard() {
           </div>
         </div>
       </main>
+
+      {/* 비밀번호 변경 모달 */}
+      {showPasswordModal && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+          <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+            <div className="mt-3">
+              <h3 className="text-lg font-medium text-gray-900 mb-4">
+                {user?.mustChangePassword ? '비밀번호 변경 필요' : '비밀번호 변경'}
+              </h3>
+              {user?.mustChangePassword && (
+                <p className="text-sm text-yellow-600 bg-yellow-50 p-3 rounded-md mb-4">
+                  초기 비밀번호를 사용 중입니다. 보안을 위해 새 비밀번호로 변경해주세요.
+                </p>
+              )}
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    새 비밀번호
+                  </label>
+                  <input
+                    type="password"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500"
+                    placeholder="6자 이상 입력"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    비밀번호 확인
+                  </label>
+                  <input
+                    type="password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500"
+                    placeholder="비밀번호 다시 입력"
+                  />
+                </div>
+
+                {passwordError && (
+                  <p className="text-sm text-red-600">{passwordError}</p>
+                )}
+                {passwordSuccess && (
+                  <p className="text-sm text-green-600">비밀번호가 변경되었습니다!</p>
+                )}
+
+                <div className="flex gap-3">
+                  <button
+                    onClick={handlePasswordChange}
+                    className="flex-1 bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700"
+                  >
+                    변경하기
+                  </button>
+                  {!user?.mustChangePassword && (
+                    <button
+                      onClick={() => {
+                        setShowPasswordModal(false);
+                        setNewPassword('');
+                        setConfirmPassword('');
+                        setPasswordError('');
+                      }}
+                      className="flex-1 bg-gray-300 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-400"
+                    >
+                      취소
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

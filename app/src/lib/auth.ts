@@ -2,14 +2,21 @@ import bcrypt from 'bcryptjs';
 import fs from 'fs';
 import path from 'path';
 
+// 권한 타입 정의
+export type UserRole = 'admin' | 'sales_viewer' | 'user';
+
 export interface User {
   id: string;
   username: string;
   password: string;
-  role: string;
+  role: UserRole;
   allowedBrands?: string[]; // 접근 가능한 브랜드 목록 (admin은 모든 브랜드 접근 가능)
+  mustChangePassword?: boolean; // 최초 로그인 시 비밀번호 변경 필요 여부
   createdAt: string;
 }
+
+// 초기 비밀번호 상수
+export const DEFAULT_INITIAL_PASSWORD = 'qkdlxmfoq123';
 
 export interface ExecutionLog {
   id: string;
@@ -178,14 +185,20 @@ export async function authenticateUser(username: string, password: string): Prom
   return isValid ? user : null;
 }
 
-export async function createUser(username: string, password: string, role: string = 'user', allowedBrands: string[] = []): Promise<User> {
+export async function createUser(
+  username: string,
+  password: string,
+  role: UserRole = 'user',
+  allowedBrands: string[] = [],
+  mustChangePassword: boolean = false
+): Promise<User> {
   const users = await getUsers();
-  
+
   // Check if user already exists
   if (users.find(u => u.username === username)) {
     throw new Error('User already exists');
   }
-  
+
   const hashedPassword = await hashPassword(password);
   const newUser: User = {
     id: Date.now().toString(),
@@ -193,13 +206,96 @@ export async function createUser(username: string, password: string, role: strin
     password: hashedPassword,
     role,
     allowedBrands: role === 'admin' ? [] : allowedBrands, // admin은 빈 배열 (모든 브랜드 접근 가능)
+    mustChangePassword,
     createdAt: new Date().toISOString()
   };
-  
+
   users.push(newUser);
   await saveUsers(users);
-  
+
   return newUser;
+}
+
+// 초대 기능으로 사용자 생성 (기본 비밀번호 + 비밀번호 변경 필수)
+export async function inviteUser(
+  username: string,
+  role: UserRole = 'sales_viewer',
+  allowedBrands: string[] = []
+): Promise<User> {
+  return createUser(username, DEFAULT_INITIAL_PASSWORD, role, allowedBrands, true);
+}
+
+// 비밀번호 변경 함수
+export async function changePassword(username: string, newPassword: string): Promise<void> {
+  const users = await getUsers();
+  const userIndex = users.findIndex(u => u.username === username);
+
+  if (userIndex === -1) {
+    throw new Error('User not found');
+  }
+
+  const hashedPassword = await hashPassword(newPassword);
+  users[userIndex].password = hashedPassword;
+  users[userIndex].mustChangePassword = false;
+
+  await saveUsers(users);
+}
+
+// 사용자 권한 변경 함수
+export async function updateUserRole(username: string, role: UserRole): Promise<User> {
+  const users = await getUsers();
+  const userIndex = users.findIndex(u => u.username === username);
+
+  if (userIndex === -1) {
+    throw new Error('User not found');
+  }
+
+  users[userIndex].role = role;
+
+  // admin으로 변경시 브랜드 제한 해제
+  if (role === 'admin') {
+    users[userIndex].allowedBrands = [];
+  }
+
+  await saveUsers(users);
+  return users[userIndex];
+}
+
+// 권한별 접근 가능한 기능 정의
+export function getRolePermissions(role: UserRole): {
+  canViewSales: boolean;
+  canRunScraping: boolean;
+  canManageUsers: boolean;
+  canViewLogs: boolean;
+  canManageSchedule: boolean;
+} {
+  switch (role) {
+    case 'admin':
+      return {
+        canViewSales: true,
+        canRunScraping: true,
+        canManageUsers: true,
+        canViewLogs: true,
+        canManageSchedule: true,
+      };
+    case 'sales_viewer':
+      return {
+        canViewSales: true,
+        canRunScraping: false,
+        canManageUsers: false,
+        canViewLogs: false,
+        canManageSchedule: false,
+      };
+    case 'user':
+    default:
+      return {
+        canViewSales: false,
+        canRunScraping: true,
+        canManageUsers: false,
+        canViewLogs: true,
+        canManageSchedule: false,
+      };
+  }
 }
 
 export async function updateUserBrands(username: string, allowedBrands: string[]): Promise<User> {
