@@ -254,6 +254,11 @@ export async function GET(request: NextRequest) {
     const ordersData = await fetchOrders(accessToken, date, date);
     const orders = ordersData.orders || [];
 
+    // 디버깅: 첫 번째 주문 데이터 구조 확인
+    if (orders.length > 0) {
+      console.log('[Cafe24] First order structure:', JSON.stringify(orders[0], null, 2));
+    }
+
     // 통계 계산
     const stats = calculateOrderStats(orders);
 
@@ -295,6 +300,8 @@ export async function GET(request: NextRequest) {
       paymentMethods: stats.paymentMethodCount,
       recentOrders,
       lastUpdated: new Date().toISOString(),
+      // 디버깅용: 첫 번째 주문 원본 데이터
+      _debug_firstOrder: orders.length > 0 ? orders[0] : null,
     });
 
     // 토큰이 갱신되었으면 쿠키 업데이트
