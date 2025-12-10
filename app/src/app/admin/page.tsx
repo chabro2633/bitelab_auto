@@ -11,7 +11,7 @@ interface ExecutionResult {
   suggestions?: string[];
 }
 
-type ScriptTab = 'sales' | 'ads' | 'realtime';
+type ScriptTab = 'sales' | 'ads' | 'realtime' | 'period-sales';
 
 export default function AdminDashboard() {
   const router = useRouter();
@@ -136,6 +136,40 @@ export default function AdminDashboard() {
   const [autoRefreshInterval, setAutoRefreshInterval] = useState<NodeJS.Timeout | null>(null);
   const [cafe24NeedsAuth, setCafe24NeedsAuth] = useState(false);
   const [cafe24AuthUrl, setCafe24AuthUrl] = useState<string | null>(null);
+
+  // 기간별 매출 탭용 state
+  const [periodSalesStartDate, setPeriodSalesStartDate] = useState('');
+  const [periodSalesEndDate, setPeriodSalesEndDate] = useState('');
+  const [periodSales, setPeriodSales] = useState<{
+    success: boolean;
+    startDate: string;
+    endDate: string;
+    brandName: string;
+    stats: {
+      totalSales: number;
+      totalOrders: number;
+      validOrders: number;
+      totalItems: number;
+      averageOrderValue: number;
+      pendingAmount: number;
+      pendingOrders: number;
+      cancelRefundAmount: number;
+      cancelRefundOrders: number;
+    };
+    orderStatus: Array<{ status: string; label: string; count: number }>;
+    topProducts: Array<{ name: string; quantity: number; sales: number }>;
+    recentOrders: Array<{
+      orderId: string;
+      orderDate: string;
+      status: string;
+      amount: number;
+      productName: string;
+      itemCount: number;
+    }>;
+    lastUpdated: string;
+  } | null>(null);
+  const [periodSalesLoading, setPeriodSalesLoading] = useState(false);
+  const [periodSalesError, setPeriodSalesError] = useState<string | null>(null);
 
   // Refs (must be at the top level)
   const prevStepsRef = useRef<string>('');
@@ -463,6 +497,42 @@ export default function AdminDashboard() {
     }
   }, [activeTab, realtimeInitialized]);
 
+  // 기간별 매출 데이터 가져오기
+  const fetchPeriodSales = async () => {
+    if (!periodSalesStartDate || !periodSalesEndDate) {
+      setPeriodSalesError('시작일과 종료일을 선택해주세요');
+      return;
+    }
+
+    // 날짜 유효성 검사
+    if (new Date(periodSalesStartDate) > new Date(periodSalesEndDate)) {
+      setPeriodSalesError('시작일이 종료일보다 늦을 수 없습니다');
+      return;
+    }
+
+    setPeriodSalesLoading(true);
+    setPeriodSalesError(null);
+    try {
+      const response = await fetch(`/api/cafe24?startDate=${periodSalesStartDate}&endDate=${periodSalesEndDate}`);
+      const data = await response.json();
+
+      if (data.success) {
+        setPeriodSales(data);
+      } else if (data.needsAuth) {
+        setCafe24NeedsAuth(true);
+        setCafe24AuthUrl(data.authUrl);
+        setPeriodSalesError(data.error || 'Cafe24 인증이 필요합니다');
+      } else {
+        setPeriodSalesError(data.error || '데이터를 가져올 수 없습니다');
+      }
+    } catch (error) {
+      console.error('기간별 매출 조회 오류:', error);
+      setPeriodSalesError('네트워크 오류가 발생했습니다');
+    } finally {
+      setPeriodSalesLoading(false);
+    }
+  };
+
   // 자동 새로고침 토글
   const toggleAutoRefresh = () => {
     if (autoRefresh) {
@@ -536,8 +606,9 @@ export default function AdminDashboard() {
   const canAccessTab = (tab: ScriptTab): boolean => {
     if (!user) return false;
     if (user.role === 'admin') return true;
-    if (user.role === 'sales_viewer') return tab === 'realtime';
-    return tab !== 'realtime'; // user 권한은 스크래핑만
+    // sales_viewer는 실시간 매출과 기간별 매출 탭 모두 접근 가능
+    if (user.role === 'sales_viewer') return tab === 'realtime' || tab === 'period-sales';
+    return tab !== 'realtime' && tab !== 'period-sales'; // user 권한은 스크래핑만
   };
 
   // 로딩 중이면 로딩 화면 표시
@@ -1231,6 +1302,18 @@ export default function AdminDashboard() {
                   }`}
                 >
                   실시간 매출 (바르너)
+                </button>
+              )}
+              {canAccessTab('period-sales') && (
+                <button
+                  onClick={() => setActiveTab('period-sales')}
+                  className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                    activeTab === 'period-sales'
+                      ? 'border-purple-500 text-purple-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  }`}
+                >
+                  기간별 매출 (바르너)
                 </button>
               )}
             </nav>
@@ -2109,6 +2192,278 @@ export default function AdminDashboard() {
                           <p className="mt-2">오늘 주문이 아직 없습니다.</p>
                         </div>
                       )}
+                    </div>
+                  )}
+                </>
+              )}
+
+              {/* 기간별 매출 탭 */}
+              {activeTab === 'period-sales' && (
+                <>
+                  <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-lg font-medium text-gray-900">
+                      바르너 기간별 매출 조회
+                    </h2>
+                  </div>
+
+                  {/* 날짜 범위 선택 */}
+                  <div className="mb-6 p-4 bg-purple-50 rounded-lg">
+                    <div className="flex flex-wrap gap-4 items-end">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">시작일</label>
+                        <input
+                          type="date"
+                          value={periodSalesStartDate}
+                          onChange={(e) => setPeriodSalesStartDate(e.target.value)}
+                          className="px-3 py-2 border border-gray-300 rounded-md focus:ring-purple-500 focus:border-purple-500 text-gray-900"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">종료일</label>
+                        <input
+                          type="date"
+                          value={periodSalesEndDate}
+                          onChange={(e) => setPeriodSalesEndDate(e.target.value)}
+                          className="px-3 py-2 border border-gray-300 rounded-md focus:ring-purple-500 focus:border-purple-500 text-gray-900"
+                        />
+                      </div>
+                      <button
+                        onClick={fetchPeriodSales}
+                        disabled={periodSalesLoading || !periodSalesStartDate || !periodSalesEndDate}
+                        className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {periodSalesLoading ? '조회 중...' : '조회'}
+                      </button>
+                    </div>
+                    {/* 빠른 선택 버튼 */}
+                    <div className="mt-3 flex gap-2">
+                      <button
+                        onClick={() => {
+                          const today = new Date();
+                          const startOfWeek = new Date(today);
+                          startOfWeek.setDate(today.getDate() - today.getDay());
+                          setPeriodSalesStartDate(startOfWeek.toISOString().split('T')[0]);
+                          setPeriodSalesEndDate(today.toISOString().split('T')[0]);
+                        }}
+                        className="px-3 py-1 text-xs bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300"
+                      >
+                        이번 주
+                      </button>
+                      <button
+                        onClick={() => {
+                          const today = new Date();
+                          const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+                          setPeriodSalesStartDate(startOfMonth.toISOString().split('T')[0]);
+                          setPeriodSalesEndDate(today.toISOString().split('T')[0]);
+                        }}
+                        className="px-3 py-1 text-xs bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300"
+                      >
+                        이번 달
+                      </button>
+                      <button
+                        onClick={() => {
+                          const today = new Date();
+                          const lastWeek = new Date(today);
+                          lastWeek.setDate(today.getDate() - 7);
+                          setPeriodSalesStartDate(lastWeek.toISOString().split('T')[0]);
+                          setPeriodSalesEndDate(today.toISOString().split('T')[0]);
+                        }}
+                        className="px-3 py-1 text-xs bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300"
+                      >
+                        최근 7일
+                      </button>
+                      <button
+                        onClick={() => {
+                          const today = new Date();
+                          const last30Days = new Date(today);
+                          last30Days.setDate(today.getDate() - 30);
+                          setPeriodSalesStartDate(last30Days.toISOString().split('T')[0]);
+                          setPeriodSalesEndDate(today.toISOString().split('T')[0]);
+                        }}
+                        className="px-3 py-1 text-xs bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300"
+                      >
+                        최근 30일
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Cafe24 인증 필요 */}
+                  {cafe24NeedsAuth && cafe24AuthUrl && (
+                    <div className="mb-4 p-6 bg-yellow-50 border border-yellow-200 rounded-lg">
+                      <div className="flex items-start gap-4">
+                        <div className="text-3xl">🔐</div>
+                        <div className="flex-1">
+                          <div className="text-lg font-medium text-yellow-800 mb-2">Cafe24 인증이 필요합니다</div>
+                          <div className="text-sm text-yellow-700 mb-4">
+                            매출 데이터를 조회하려면 Cafe24 쇼핑몰 관리자 권한으로 인증해야 합니다.
+                          </div>
+                          <a
+                            href={cafe24AuthUrl}
+                            className="inline-flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors"
+                          >
+                            Cafe24 로그인하여 인증하기
+                          </a>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 에러 메시지 */}
+                  {periodSalesError && !cafe24NeedsAuth && (
+                    <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
+                      {periodSalesError}
+                    </div>
+                  )}
+
+                  {/* 로딩 */}
+                  {periodSalesLoading && (
+                    <div className="flex items-center justify-center py-12">
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600"></div>
+                      <span className="ml-2 text-gray-600">데이터 조회 중...</span>
+                    </div>
+                  )}
+
+                  {/* 기간별 매출 결과 */}
+                  {periodSales && !periodSalesLoading && (
+                    <div className="space-y-6">
+                      {/* 조회 기간 표시 */}
+                      <div className="text-sm text-gray-500 mb-4">
+                        조회 기간: {periodSales.startDate} ~ {periodSales.endDate}
+                        <span className="ml-2 text-xs text-gray-400">
+                          (마지막 업데이트: {new Date(periodSales.lastUpdated).toLocaleString('ko-KR')})
+                        </span>
+                      </div>
+
+                      {/* 매출 요약 카드 */}
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        {/* 확정 매출 */}
+                        <div className="bg-gradient-to-br from-purple-500 to-purple-600 rounded-lg p-4 text-white">
+                          <div className="text-sm opacity-80">확정 매출</div>
+                          <div className="text-2xl font-bold mt-1">
+                            {periodSales.stats.totalSales.toLocaleString()}원
+                          </div>
+                          <div className="text-xs mt-2 opacity-70">
+                            {periodSales.stats.validOrders}건 | 평균 {periodSales.stats.averageOrderValue.toLocaleString()}원
+                          </div>
+                        </div>
+
+                        {/* 입금대기 */}
+                        <div className="bg-gradient-to-br from-yellow-500 to-yellow-600 rounded-lg p-4 text-white">
+                          <div className="text-sm opacity-80">입금대기</div>
+                          <div className="text-2xl font-bold mt-1">
+                            {periodSales.stats.pendingAmount.toLocaleString()}원
+                          </div>
+                          <div className="text-xs mt-2 opacity-70">
+                            {periodSales.stats.pendingOrders}건
+                          </div>
+                        </div>
+
+                        {/* 취소/환불 */}
+                        <div className="bg-gradient-to-br from-red-500 to-red-600 rounded-lg p-4 text-white">
+                          <div className="text-sm opacity-80">취소/환불</div>
+                          <div className="text-2xl font-bold mt-1">
+                            {periodSales.stats.cancelRefundAmount.toLocaleString()}원
+                          </div>
+                          <div className="text-xs mt-2 opacity-70">
+                            {periodSales.stats.cancelRefundOrders}건
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* TOP 5 상품 */}
+                      {periodSales.topProducts && periodSales.topProducts.length > 0 && (
+                        <div className="bg-white border border-gray-200 rounded-lg p-4">
+                          <h3 className="text-md font-semibold text-gray-800 mb-4">TOP 5 상품</h3>
+                          <div className="space-y-3">
+                            {periodSales.topProducts.map((product, index) => (
+                              <div key={index} className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0">
+                                <div className="flex items-center gap-3">
+                                  <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
+                                    index === 0 ? 'bg-yellow-400 text-white' :
+                                    index === 1 ? 'bg-gray-300 text-gray-700' :
+                                    index === 2 ? 'bg-orange-400 text-white' :
+                                    'bg-gray-100 text-gray-600'
+                                  }`}>
+                                    {index + 1}
+                                  </span>
+                                  <span className="text-sm text-gray-800 truncate max-w-xs">{product.name}</span>
+                                </div>
+                                <div className="text-right">
+                                  <div className="text-sm font-medium text-gray-900">{product.sales.toLocaleString()}원</div>
+                                  <div className="text-xs text-gray-500">{product.quantity}개 판매</div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 주문 상태별 현황 */}
+                      {periodSales.orderStatus && periodSales.orderStatus.length > 0 && (
+                        <div className="bg-white border border-gray-200 rounded-lg p-4">
+                          <h3 className="text-md font-semibold text-gray-800 mb-4">주문 상태별 현황</h3>
+                          <div className="flex flex-wrap gap-2">
+                            {periodSales.orderStatus.map((status, index) => (
+                              <span key={index} className={`px-3 py-1 rounded-full text-sm ${
+                                status.label?.includes('완료') ? 'bg-green-100 text-green-700' :
+                                status.label?.includes('배송') ? 'bg-blue-100 text-blue-700' :
+                                status.label?.includes('준비') ? 'bg-yellow-100 text-yellow-700' :
+                                status.label?.includes('취소') || status.label?.includes('환불') ? 'bg-red-100 text-red-700' :
+                                'bg-gray-100 text-gray-700'
+                              }`}>
+                                {status.label}: {status.count}건
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 최근 주문 목록 */}
+                      {periodSales.recentOrders && periodSales.recentOrders.length > 0 && (
+                        <div className="bg-white border border-gray-200 rounded-lg p-4">
+                          <h3 className="text-md font-semibold text-gray-800 mb-4">최근 주문 (상위 10건)</h3>
+                          <div className="space-y-2">
+                            {periodSales.recentOrders.map((order, index) => (
+                              <div key={index} className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0">
+                                <div className="flex-1">
+                                  <div className="text-sm text-gray-900 truncate max-w-xs">{order.productName}</div>
+                                  <div className="text-xs text-gray-500">
+                                    {order.orderId} | {new Date(order.orderDate).toLocaleString('ko-KR')}
+                                  </div>
+                                </div>
+                                <div className="text-right">
+                                  <div className="text-sm font-medium text-gray-900">{order.amount.toLocaleString()}원</div>
+                                  <div className={`text-xs px-2 py-0.5 rounded-full inline-block ${
+                                    order.status?.includes('완료') ? 'bg-green-100 text-green-700' :
+                                    order.status?.includes('배송') ? 'bg-blue-100 text-blue-700' :
+                                    order.status?.includes('준비') ? 'bg-yellow-100 text-yellow-700' :
+                                    'bg-gray-100 text-gray-700'
+                                  }`}>
+                                    {order.status || '상태 없음'}
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 데이터 없음 */}
+                      {periodSales.recentOrders.length === 0 && (
+                        <div className="text-center py-8 text-gray-500">
+                          <p className="mt-2">선택한 기간에 주문이 없습니다.</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* 조회 전 안내 */}
+                  {!periodSales && !periodSalesLoading && !periodSalesError && (
+                    <div className="text-center py-12 text-gray-500">
+                      <svg className="mx-auto h-12 w-12 text-gray-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                      </svg>
+                      <p>조회할 기간을 선택하고 &apos;조회&apos; 버튼을 클릭하세요.</p>
                     </div>
                   )}
                 </>

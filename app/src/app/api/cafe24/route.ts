@@ -310,7 +310,9 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const date = searchParams.get('date') || getTodayDateKST();
+    // 날짜 범위 지원: startDate, endDate 또는 단일 date
+    const startDate = searchParams.get('startDate') || searchParams.get('date') || getTodayDateKST();
+    const endDate = searchParams.get('endDate') || searchParams.get('date') || getTodayDateKST();
 
     // Access Token 가져오기
     let accessToken: string;
@@ -331,8 +333,8 @@ export async function GET(request: NextRequest) {
       throw error;
     }
 
-    // 오늘 주문 데이터 가져오기
-    const ordersData = await fetchOrders(accessToken, date, date);
+    // 주문 데이터 가져오기 (기간별)
+    const ordersData = await fetchOrders(accessToken, startDate, endDate);
     const orders = ordersData.orders || [];
 
     // 통계 계산
@@ -366,7 +368,8 @@ export async function GET(request: NextRequest) {
 
     const response = NextResponse.json({
       success: true,
-      date,
+      startDate,
+      endDate,
       mallId: CAFE24_MALL_ID,
       brandName: '바르너',
       stats: {
