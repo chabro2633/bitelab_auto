@@ -421,12 +421,14 @@ export default function AdminDashboard() {
     }
   };
 
-  // 실시간 탭으로 이동 시 자동 조회
+  // 실시간 탭으로 이동 시 한 번만 조회 (자동 반복 없음)
+  const [realtimeInitialized, setRealtimeInitialized] = useState(false);
   useEffect(() => {
-    if (activeTab === 'realtime' && !realtimeSales && !realtimeLoading) {
+    if (activeTab === 'realtime' && !realtimeInitialized) {
+      setRealtimeInitialized(true);
       fetchRealtimeSales();
     }
-  }, [activeTab, realtimeSales, realtimeLoading]);
+  }, [activeTab, realtimeInitialized]);
 
   // 자동 새로고침 토글
   const toggleAutoRefresh = () => {
