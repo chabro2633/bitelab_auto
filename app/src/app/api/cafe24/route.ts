@@ -1,16 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '../../../lib/session';
-import fs from 'fs';
-import path from 'path';
+import { cookies } from 'next/headers';
 
 // Cafe24 API 설정
 const CAFE24_CLIENT_ID = process.env.CAFE24_CLIENT_ID || 'SUeffNXsNJDK9fv5it5Ygg';
 const CAFE24_CLIENT_SECRET = process.env.CAFE24_CLIENT_SECRET || '8yMByUfsICdGJQm6ziS07F';
 const CAFE24_MALL_ID = process.env.CAFE24_MALL_ID || 'baruner';
 const CAFE24_REDIRECT_URI = process.env.CAFE24_REDIRECT_URI || 'http://localhost:3005/api/cafe24/callback';
-
-// 토큰 저장 파일 경로
-const TOKEN_FILE_PATH = path.join(process.cwd(), 'cafe24_token.json');
 
 // 토큰 저장/불러오기
 interface TokenData {
@@ -19,24 +15,19 @@ interface TokenData {
   expiresAt: number;
 }
 
-function loadTokenFromFile(): TokenData | null {
+const COOKIE_NAME = 'cafe24_token';
+
+async function loadTokenFromCookie(): Promise<TokenData | null> {
   try {
-    if (fs.existsSync(TOKEN_FILE_PATH)) {
-      const data = fs.readFileSync(TOKEN_FILE_PATH, 'utf-8');
-      return JSON.parse(data);
+    const cookieStore = await cookies();
+    const tokenCookie = cookieStore.get(COOKIE_NAME);
+    if (tokenCookie) {
+      return JSON.parse(tokenCookie.value);
     }
   } catch (error) {
-    console.error('Failed to load token:', error);
+    console.error('Failed to load token from cookie:', error);
   }
   return null;
-}
-
-function saveTokenToFile(token: TokenData): void {
-  try {
-    fs.writeFileSync(TOKEN_FILE_PATH, JSON.stringify(token, null, 2));
-  } catch (error) {
-    console.error('Failed to save token:', error);
-  }
 }
 
 // Access Token 갱신
@@ -69,13 +60,12 @@ async function refreshAccessToken(refreshToken: string): Promise<TokenData> {
     expiresAt: Date.now() + (data.expires_in || 3600) * 1000,
   };
 
-  saveTokenToFile(tokenData);
   return tokenData;
 }
 
 // Access Token 가져오기 (캐시 또는 갱신)
-async function getAccessToken(): Promise<string> {
-  const tokenData = loadTokenFromFile();
+async function getAccessToken(): Promise<{ token: string; newTokenData?: TokenData }> {
+  const tokenData = await loadTokenFromCookie();
 
   if (!tokenData) {
     throw new Error('NO_TOKEN');
@@ -83,13 +73,13 @@ async function getAccessToken(): Promise<string> {
 
   // 토큰이 아직 유효한지 확인 (만료 5분 전에 갱신)
   if (tokenData.expiresAt > Date.now() + 5 * 60 * 1000) {
-    return tokenData.accessToken;
+    return { token: tokenData.accessToken };
   }
 
   // 토큰 갱신
   if (tokenData.refreshToken) {
     const newToken = await refreshAccessToken(tokenData.refreshToken);
-    return newToken.accessToken;
+    return { token: newToken.accessToken, newTokenData: newToken };
   }
 
   throw new Error('NO_TOKEN');
@@ -231,7 +221,7 @@ export async function GET(request: NextRequest) {
 
   // 인증 상태 확인
   if (action === 'status') {
-    const tokenData = loadTokenFromFile();
+    const tokenData = await loadTokenFromCookie();
     return NextResponse.json({
       authenticated: !!tokenData && tokenData.expiresAt > Date.now(),
       authUrl: getAuthUrl(),
@@ -243,8 +233,11 @@ export async function GET(request: NextRequest) {
 
     // Access Token 가져오기
     let accessToken: string;
+    let newTokenData: TokenData | undefined;
     try {
-      accessToken = await getAccessToken();
+      const result = await getAccessToken();
+      accessToken = result.token;
+      newTokenData = result.newTokenData;
     } catch (error) {
       if (error instanceof Error && error.message === 'NO_TOKEN') {
         return NextResponse.json({
@@ -287,7 +280,7 @@ export async function GET(request: NextRequest) {
       itemCount: order.items?.length || 0,
     }));
 
-    return NextResponse.json({
+    const response = NextResponse.json({
       success: true,
       date,
       mallId: CAFE24_MALL_ID,
@@ -303,6 +296,18 @@ export async function GET(request: NextRequest) {
       recentOrders,
       lastUpdated: new Date().toISOString(),
     });
+
+    // 토큰이 갱신되었으면 쿠키 업데이트
+    if (newTokenData) {
+      response.cookies.set(COOKIE_NAME, JSON.stringify(newTokenData), {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 60 * 60 * 24 * 14, // 14일
+      });
+    }
+
+    return response;
 
   } catch (error: unknown) {
     console.error('Cafe24 API error:', error);

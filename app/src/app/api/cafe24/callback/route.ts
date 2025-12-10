@@ -1,6 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import fs from 'fs';
-import path from 'path';
 
 // Cafe24 API 설정
 const CAFE24_CLIENT_ID = process.env.CAFE24_CLIENT_ID || 'SUeffNXsNJDK9fv5it5Ygg';
@@ -8,22 +6,12 @@ const CAFE24_CLIENT_SECRET = process.env.CAFE24_CLIENT_SECRET || '8yMByUfsICdGJQ
 const CAFE24_MALL_ID = process.env.CAFE24_MALL_ID || 'baruner';
 const CAFE24_REDIRECT_URI = process.env.CAFE24_REDIRECT_URI || 'http://localhost:3005/api/cafe24/callback';
 
-// 토큰 저장 파일 경로
-const TOKEN_FILE_PATH = path.join(process.cwd(), 'cafe24_token.json');
+const COOKIE_NAME = 'cafe24_token';
 
 interface TokenData {
   accessToken: string;
   refreshToken: string;
   expiresAt: number;
-}
-
-function saveTokenToFile(token: TokenData): void {
-  try {
-    fs.writeFileSync(TOKEN_FILE_PATH, JSON.stringify(token, null, 2));
-    console.log('Token saved successfully');
-  } catch (error) {
-    console.error('Failed to save token:', error);
-  }
 }
 
 // Authorization Code를 Access Token으로 교환
@@ -131,11 +119,8 @@ export async function GET(request: NextRequest) {
     // Code를 Token으로 교환
     const tokenData = await exchangeCodeForToken(code);
 
-    // 토큰 저장
-    saveTokenToFile(tokenData);
-
-    // 성공 페이지 표시 후 admin으로 리다이렉트
-    return new NextResponse(
+    // 성공 페이지 표시 후 admin으로 리다이렉트 (쿠키에 토큰 저장)
+    const response = new NextResponse(
       `
       <html>
         <head>
@@ -164,6 +149,18 @@ export async function GET(request: NextRequest) {
         headers: { 'Content-Type': 'text/html; charset=utf-8' },
       }
     );
+
+    // 쿠키에 토큰 저장
+    response.cookies.set(COOKIE_NAME, JSON.stringify(tokenData), {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 60 * 60 * 24 * 14, // 14일
+      path: '/',
+    });
+
+    console.log('Token saved to cookie successfully');
+    return response;
 
   } catch (err) {
     console.error('Token exchange error:', err);
