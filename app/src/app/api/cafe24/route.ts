@@ -199,8 +199,8 @@ function getOrderStatusLabel(status: string): string {
 
 // OAuth 인증 URL 생성
 function getAuthUrl(): string {
-  // Cafe24 scope 형식: 공백으로 구분
-  const scope = 'mall.read_application mall.read_product mall.read_order mall.read_customer mall.read_store mall.read_salesreport mall.read_analytics';
+  // Cafe24 scope: 주문 데이터만 필요하므로 최소한의 권한만 요청
+  const scope = 'mall.read_order mall.read_product mall.read_store';
 
   const params = new URLSearchParams({
     response_type: 'code',
