@@ -162,9 +162,13 @@ def upload_to_google_sheets(df, sheet_name):
             logger.info(f"❌ {sheet_name} 시트가 없으므로 새로 생성합니다.")
             sheet = client.open(GOOGLE_SHEET_NAME).add_worksheet(title=sheet_name, rows="100", cols="20")
 
-        # 기존 데이터 가져오기
-        existing_data = sheet.get_all_records(expected_headers=["date", "판매처", "제품명", "옵션명","판매량","결제금액","원가","수수료","컬럼1"])
-        existing_df = pd.DataFrame(existing_data)
+        # 기존 데이터 가져오기 (헤더 자동 감지)
+        try:
+            existing_data = sheet.get_all_records()
+            existing_df = pd.DataFrame(existing_data)
+        except Exception as e:
+            logger.warning(f"⚠️ 기존 데이터 읽기 실패: {e}, 빈 DataFrame으로 시작")
+            existing_df = pd.DataFrame()
 
         # 날짜 컬럼 확인 및 추가
         if 'date' not in existing_df.columns:
@@ -270,12 +274,12 @@ def upload_to_google_sheets(df, sheet_name):
     except Exception as e:
         logger.error(f"❌ Google Sheets 업로드 중 오류 발생: {e}")
 
-def extract_all_pages_data(page, selected_date, brand_name):
+def extract_all_pages_data(page, selected_date, brand_name, retry_for_columns=3):
     """모든 페이지의 데이터를 추출합니다."""
     all_data = []
     headers = None
     current_page = 1
-    expected_columns = 9  # 예상되는 열 개수 (날짜 포함)
+    expected_columns = 9  # 예상 열 개수: date, 판매처, 제품명, 옵션명, 판매량, 결제금액, 원가, 수수료, 배송비
 
     while True:
         logger.info(f"📄 {brand_name} - {current_page}페이지 데이터 추출 중...")
@@ -332,9 +336,14 @@ def extract_all_pages_data(page, selected_date, brand_name):
 
     df = pd.DataFrame(all_data, columns=headers)
 
-    # 열 개수 검증
+    # 열 개수 검증 (정확히 9개 필요)
     if len(df.columns) < expected_columns:
         logger.error(f"❌ {brand_name} 브랜드 데이터 수집 실패: 예상 열 개수 {expected_columns}개, 실제 {len(df.columns)}개")
+        return None
+
+    # 데이터가 비어있는지 확인
+    if len(df) == 0:
+        logger.warning(f"⚠️ {brand_name} 브랜드 데이터가 비어있습니다.")
         return None
 
     logger.info(f"✅ {brand_name} 브랜드 총 {len(df)}개 행의 데이터 추출 완료 (열 개수: {len(df.columns)}개)")
@@ -343,6 +352,8 @@ def extract_all_pages_data(page, selected_date, brand_name):
 
 def scrape_brand(browser_context, brand, selected_date, max_retries=3):
     """단일 브랜드를 스크래핑합니다."""
+    expected_columns = 9  # date 포함 9개 컬럼 필요
+
     for attempt in range(max_retries):
         page = None
         try:
@@ -362,15 +373,50 @@ def scrape_brand(browser_context, brand, selected_date, max_retries=3):
                 logger.warning(f"⚠️ {brand} - 테이블 로딩 대기, 추가 대기 중...")
                 page.wait_for_timeout(3000)
 
+            # 9개 컬럼이 로드될 때까지 대기 (최대 3번 새로고침)
+            for col_retry in range(3):
+                columns = page.query_selector_all('div.sc-dkrFOg.cGhOUg')
+                current_col_count = len(columns) + 1  # +1 for date column
+
+                if current_col_count >= expected_columns:
+                    logger.info(f"✅ {brand} - 컬럼 {current_col_count}개 로드 완료")
+                    break
+                else:
+                    logger.warning(f"⚠️ {brand} - 컬럼 {current_col_count}개만 로드됨 (필요: {expected_columns}개), 추가 대기 중... ({col_retry + 1}/3)")
+
+                    if col_retry < 2:
+                        # 추가 대기 후 새로고침
+                        page.wait_for_timeout(3000)
+                        page.reload(wait_until='domcontentloaded', timeout=60000)
+                        page.wait_for_timeout(2000)
+
+                        # 테이블 다시 대기
+                        try:
+                            page.wait_for_selector('div.sc-dkrFOg.cGhOUg', timeout=30000)
+                        except:
+                            page.wait_for_timeout(3000)
+
+            # 데이터 셀이 완전히 로드될 때까지 추가 대기 (최대 10초)
+            for wait_attempt in range(5):
+                page.wait_for_timeout(2000)
+                # 실제 데이터 셀 개수 확인
+                data_cells = page.query_selector_all('div.sc-hLBbgP.jbaWzw')
+                columns = page.query_selector_all('div.sc-dkrFOg.cGhOUg')
+                if len(columns) >= 8 and len(data_cells) > 0:
+                    logger.info(f"✅ {brand} - 데이터 셀 로드 완료 (컬럼: {len(columns)}개, 셀: {len(data_cells)}개)")
+                    break
+                else:
+                    logger.warning(f"⚠️ {brand} - 데이터 셀 대기 중... (컬럼: {len(columns)}개, 셀: {len(data_cells)}개) ({wait_attempt + 1}/5)")
+
             df = extract_all_pages_data(page, selected_date, brand)
 
             if df is not None and not df.empty:
                 return brand, df, None
             else:
-                logger.warning(f"⚠️ {brand} 시도 {attempt + 1}/{max_retries}: 데이터 없음")
+                logger.warning(f"⚠️ {brand} 시도 {attempt + 1}/{max_retries}: 데이터 없음 또는 컬럼 부족")
                 # 재시도 전 잠시 대기
                 if attempt < max_retries - 1:
-                    page.wait_for_timeout(2000)
+                    page.wait_for_timeout(3000)
 
         except Exception as e:
             logger.error(f"❌ {brand} 시도 {attempt + 1}/{max_retries} 오류: {e}")
@@ -538,7 +584,8 @@ def main():
 
             # 슬랙 알림 전송
             success_rate = total_success / total_tasks * 100 if total_tasks > 0 else 0
-            is_success = total_success > 0
+            # 성공 기준: 성공률 50% 이상이면 성공, 아니면 실패
+            is_success = success_rate >= 50
 
             if len(date_range) == 1:
                 date_info = date_range[0]
@@ -553,12 +600,23 @@ def main():
                 "📈 성공률": f"{success_rate:.1f}%"
             }
 
-            if is_success:
-                slack_message = f"*{len(date_range)}일* x *{len(selected_brands)}개 브랜드* 스크래핑이 완료되었습니다."
-                logger.info("🎉 스크래핑 작업이 완료되었습니다!")
-            else:
-                slack_message = "모든 스크래핑이 실패했습니다. 로그를 확인해주세요."
+            if total_fail == 0:
+                # 모두 성공
+                slack_message = f"*{len(date_range)}일* x *{len(selected_brands)}개 브랜드* 스크래핑이 모두 완료되었습니다."
+                logger.info("🎉 스크래핑 작업이 모두 완료되었습니다!")
+                is_success = True
+            elif total_success == 0:
+                # 모두 실패
+                slack_message = "⚠️ 모든 스크래핑이 실패했습니다. 로그를 확인해주세요."
                 logger.error("❌ 모든 스크래핑이 실패했습니다.")
+                is_success = False
+            else:
+                # 일부 성공, 일부 실패
+                slack_message = f"*{len(date_range)}일* x *{len(selected_brands)}개 브랜드* 중 *{total_success}건 성공*, *{total_fail}건 실패*했습니다."
+                if success_rate >= 50:
+                    logger.warning(f"⚠️ 일부 스크래핑 실패 (성공률: {success_rate:.1f}%)")
+                else:
+                    logger.error(f"❌ 스크래핑 대부분 실패 (성공률: {success_rate:.1f}%)")
 
             send_slack_notification(is_success, slack_message, slack_details)
 

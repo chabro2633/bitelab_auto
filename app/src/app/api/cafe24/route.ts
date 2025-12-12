@@ -93,15 +93,15 @@ function getTodayDateKST(): string {
   return kstDate.toISOString().split('T')[0];
 }
 
-// 주문 데이터 가져오기
-async function fetchOrders(accessToken: string, startDate: string, endDate: string) {
+// 단일 페이지 주문 가져오기
+async function fetchOrderPage(accessToken: string, startDate: string, endDate: string, offset: number, limit: number) {
   const apiUrl = `https://${CAFE24_MALL_ID}.cafe24api.com/api/v2/admin/orders`;
-
   const params = new URLSearchParams({
     start_date: startDate,
     end_date: endDate,
-    order_status: 'N00,N10,N20,N21,N22,N30,N40',
-    limit: '100',
+    order_status: 'N00,N10,N20,N21,N22,N30,N40,N50',
+    limit: String(limit),
+    offset: String(offset),
     embed: 'items',
   });
 
@@ -119,7 +119,134 @@ async function fetchOrders(accessToken: string, startDate: string, endDate: stri
     throw new Error(`Failed to fetch orders: ${errorText}`);
   }
 
-  return response.json();
+  const data = await response.json();
+  return data.orders || [];
+}
+
+// 단일 기간 주문 데이터 가져오기 (페이지네이션)
+async function fetchOrdersForPeriod(accessToken: string, startDate: string, endDate: string) {
+  const limit = 100;
+  const allOrders: Array<Record<string, unknown>> = [];
+  let currentOffset = 0;
+  let hasMore = true;
+
+  while (hasMore) {
+    // 병렬로 10페이지씩 가져오기 (1000건씩)
+    const parallelBatch = 10;
+    const offsets = Array.from({ length: parallelBatch }, (_, i) => currentOffset + i * limit);
+
+    const pagePromises = offsets.map(offset =>
+      fetchOrderPage(accessToken, startDate, endDate, offset, limit).catch((err) => {
+        console.error(`[Cafe24] Failed to fetch page at offset ${offset}:`, err);
+        return [];
+      })
+    );
+
+    const pages = await Promise.all(pagePromises);
+
+    let fetchedInBatch = 0;
+    let lastPageFull = true;
+
+    for (const page of pages) {
+      if (page.length > 0) {
+        allOrders.push(...page);
+        fetchedInBatch += page.length;
+      }
+      if (page.length < limit) {
+        lastPageFull = false;
+        break;
+      }
+    }
+
+    currentOffset += parallelBatch * limit;
+
+    if (!lastPageFull || fetchedInBatch === 0) {
+      hasMore = false;
+    }
+  }
+
+  return allOrders;
+}
+
+// 주문 데이터 가져오기 (기간 분할 + 병렬 처리로 최적화)
+async function fetchOrders(accessToken: string, startDate: string, endDate: string) {
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  const diffDays = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+
+  console.log(`[Cafe24] Fetching orders for period ${startDate} ~ ${endDate} (${diffDays} days)`);
+
+  // 기간이 5일 이하면 단일 요청
+  if (diffDays <= 5) {
+    const orders = await fetchOrdersForPeriod(accessToken, startDate, endDate);
+    console.log(`[Cafe24] Total orders fetched: ${orders.length}`);
+    return { orders };
+  }
+
+  // 기간을 3일 단위로 분할하여 병렬 요청
+  const chunkDays = 3;
+  const dateRanges: Array<{ start: string; end: string }> = [];
+
+  let currentStart = new Date(start);
+  while (currentStart <= end) {
+    const chunkEnd = new Date(currentStart);
+    chunkEnd.setDate(chunkEnd.getDate() + chunkDays - 1);
+
+    // 종료일이 전체 종료일을 넘지 않도록
+    const actualEnd = chunkEnd > end ? end : chunkEnd;
+
+    const formatDate = (d: Date) => {
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    };
+
+    dateRanges.push({
+      start: formatDate(currentStart),
+      end: formatDate(actualEnd)
+    });
+
+    currentStart = new Date(actualEnd);
+    currentStart.setDate(currentStart.getDate() + 1);
+  }
+
+  console.log(`[Cafe24] Split into ${dateRanges.length} date ranges`);
+
+  // 3개씩 배치로 병렬 요청 (API rate limit 회피하면서 속도 확보)
+  const allOrders: Array<Record<string, unknown>> = [];
+  const batchSize = 3;
+
+  for (let i = 0; i < dateRanges.length; i += batchSize) {
+    const batch = dateRanges.slice(i, i + batchSize);
+    console.log(`[Cafe24] Processing batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(dateRanges.length / batchSize)}`);
+
+    const batchPromises = batch.map(range =>
+      fetchOrdersForPeriod(accessToken, range.start, range.end).catch((err) => {
+        console.error(`[Cafe24] Failed to fetch orders for ${range.start} ~ ${range.end}:`, err);
+        return [];
+      })
+    );
+
+    const batchResults = await Promise.all(batchPromises);
+    for (const orders of batchResults) {
+      allOrders.push(...orders);
+    }
+    console.log(`[Cafe24] Batch complete, total orders so far: ${allOrders.length}`);
+  }
+
+  // 디버그 로그
+  if (allOrders.length > 0) {
+    const firstOrder = allOrders[0];
+    console.log('[Cafe24 Debug] First order:', {
+      order_id: firstOrder.order_id,
+      payment_amount: firstOrder.payment_amount,
+      actual_order_amount: firstOrder.actual_order_amount,
+    });
+  }
+
+  console.log(`[Cafe24] Total orders fetched: ${allOrders.length} for period ${startDate} ~ ${endDate}`);
+  return { orders: allOrders };
 }
 
 // 취소/환불 상태 코드
@@ -127,24 +254,46 @@ const CANCEL_REFUND_STATUSES = ['C00', 'C10', 'C34', 'R00', 'R10', 'R12', 'E00',
 // 입금대기 상태
 const PENDING_PAYMENT_STATUSES = ['N00'];
 
-// 주문이 유효한 매출인지 확인 (입금확인 이상, 취소/환불 제외)
-function isValidSalesOrder(orderStatus: string): boolean {
-  // 입금대기(N00)는 제외
-  if (PENDING_PAYMENT_STATUSES.includes(orderStatus)) return false;
-  // 취소/환불 상태는 제외
-  if (CANCEL_REFUND_STATUSES.includes(orderStatus)) return false;
-  return true;
+// 주문에서 실제 결제 금액 계산 (네이버페이 적립금 등 포함)
+function getOrderTotalAmount(order: Record<string, unknown>): number {
+  // 우선순위: actual_order_amount.payment_amount > payment_amount > 상품금액 합계
+
+  // 1. actual_order_amount가 있으면 그 안의 payment_amount 사용
+  const actualOrderAmount = order.actual_order_amount as Record<string, string> | undefined;
+  if (actualOrderAmount?.payment_amount) {
+    return Math.round(parseFloat(actualOrderAmount.payment_amount));
+  }
+
+  // 2. 루트 레벨의 payment_amount
+  if (order.payment_amount) {
+    return Math.round(parseFloat(String(order.payment_amount)));
+  }
+
+  // 3. total_order_amount (상품 총액)
+  if (order.total_order_amount) {
+    return Math.round(parseFloat(String(order.total_order_amount)));
+  }
+
+  // 4. order_price_amount (주문 금액)
+  if (order.order_price_amount) {
+    const orderPrice = Math.round(parseFloat(String(order.order_price_amount)));
+    // 적립금, 쿠폰 할인 등 차감 내역이 있으면 빼기
+    const pointsUsed = Math.round(parseFloat(String(order.points_used || '0')));
+    const creditsUsed = Math.round(parseFloat(String(order.credits_used || '0')));
+    const couponDiscount = Math.round(parseFloat(String(order.coupon_discount_price || '0')));
+    return orderPrice - pointsUsed - creditsUsed - couponDiscount;
+  }
+
+  return 0;
+}
+
+// 부가세 제외 금액 계산 (VAT 10% 제외)
+function excludeVAT(amount: number): number {
+  return Math.round(amount / 1.1);
 }
 
 // 주문 통계 계산
-function calculateOrderStats(orders: Array<{
-  order_id: string;
-  order_date: string;
-  payment_amount: string;
-  payment_method: string[];
-  actual_order_amount?: { payment_amount: string };
-  items?: Array<{ product_name: string; quantity: number; product_price: string; order_status: string }>;
-}>) {
+function calculateOrderStats(orders: Array<Record<string, unknown>>) {
   let totalAmount = 0;  // 유효 매출 (입금확인 이상, 취소/환불 제외)
   let totalOrders = 0;  // 전체 주문 수
   let validOrders = 0;  // 유효 주문 수
@@ -158,15 +307,16 @@ function calculateOrderStats(orders: Array<{
 
   for (const order of orders) {
     totalOrders++;
-    const paymentAmount = parseFloat(order.payment_amount || order.actual_order_amount?.payment_amount || '0');
-    const amount = Math.round(paymentAmount);
+    const amount = getOrderTotalAmount(order);
 
     // 결제 방법 집계
-    const paymentMethod = order.payment_method?.[0] || 'unknown';
+    const paymentMethodArr = order.payment_method as string[] | undefined;
+    const paymentMethod = paymentMethodArr?.[0] || 'unknown';
     paymentMethodCount[paymentMethod] = (paymentMethodCount[paymentMethod] || 0) + 1;
 
     // 주문 내 첫 번째 아이템의 상태로 주문 상태 판단
-    const primaryStatus = order.items?.[0]?.order_status || 'unknown';
+    const items = order.items as Array<{ order_status?: string; quantity?: number }> | undefined;
+    const primaryStatus = items?.[0]?.order_status || 'unknown';
 
     // 상태별 집계
     if (PENDING_PAYMENT_STATUSES.includes(primaryStatus)) {
@@ -181,8 +331,8 @@ function calculateOrderStats(orders: Array<{
       validOrders++;
     }
 
-    if (order.items) {
-      for (const item of order.items) {
+    if (items) {
+      for (const item of items) {
         totalItems += item.quantity || 1;
         const status = item.order_status || 'unknown';
         orderStatusCount[status] = (orderStatusCount[status] || 0) + 1;
@@ -190,15 +340,20 @@ function calculateOrderStats(orders: Array<{
     }
   }
 
+  // 부가세 제외 금액 계산
+  const totalAmountExVAT = excludeVAT(totalAmount);
+  const pendingAmountExVAT = excludeVAT(pendingAmount);
+  const cancelRefundAmountExVAT = excludeVAT(cancelRefundAmount);
+
   return {
-    totalAmount,  // 유효 매출만
+    totalAmount: totalAmountExVAT,  // 유효 매출 (부가세 제외)
     totalOrders,  // 전체 주문 수
     validOrders,  // 유효 주문 수
     totalItems,
-    averageOrderValue: validOrders > 0 ? Math.round(totalAmount / validOrders) : 0,
-    pendingAmount,  // 입금대기 금액
+    averageOrderValue: validOrders > 0 ? Math.round(totalAmountExVAT / validOrders) : 0,
+    pendingAmount: pendingAmountExVAT,  // 입금대기 금액 (부가세 제외)
     pendingOrders,  // 입금대기 주문 수
-    cancelRefundAmount,  // 취소/환불 금액
+    cancelRefundAmount: cancelRefundAmountExVAT,  // 취소/환불 금액 (부가세 제외)
     cancelRefundOrders,  // 취소/환불 주문 수
     orderStatusCount,
     paymentMethodCount,
@@ -206,28 +361,28 @@ function calculateOrderStats(orders: Array<{
 }
 
 // 탑 상품 계산 (매출/판매수량 기준)
-function calculateTopProducts(orders: Array<{
-  items?: Array<{
-    product_name: string;
-    quantity: number;
-    product_price: string;
-    order_status: string;
-  }>;
-}>, limit: number = 5) {
+function calculateTopProducts(orders: Array<Record<string, unknown>>, limit: number = 5) {
   const productStats: Record<string, { name: string; quantity: number; sales: number }> = {};
 
   for (const order of orders) {
-    if (order.items) {
-      for (const item of order.items) {
+    const items = order.items as Array<{
+      order_status?: string;
+      product_name?: string;
+      quantity?: number;
+      product_price?: string;
+    }> | undefined;
+
+    if (items) {
+      for (const item of items) {
         // 취소/환불 상품은 제외
-        if (CANCEL_REFUND_STATUSES.includes(item.order_status)) continue;
+        if (CANCEL_REFUND_STATUSES.includes(item.order_status || '')) continue;
         // 입금대기 상품도 제외
-        if (PENDING_PAYMENT_STATUSES.includes(item.order_status)) continue;
+        if (PENDING_PAYMENT_STATUSES.includes(item.order_status || '')) continue;
 
         const name = item.product_name || '상품명 없음';
         const quantity = item.quantity || 1;
         const price = parseFloat(item.product_price || '0');
-        const sales = Math.round(price * quantity);
+        const sales = excludeVAT(Math.round(price * quantity));  // 부가세 제외
 
         if (!productStats[name]) {
           productStats[name] = { name, quantity: 0, sales: 0 };
@@ -242,6 +397,72 @@ function calculateTopProducts(orders: Array<{
   return Object.values(productStats)
     .sort((a, b) => b.sales - a.sales)
     .slice(0, limit);
+}
+
+// 일자별 매출 계산
+function calculateDailySales(orders: Array<Record<string, unknown>>) {
+  const dailyStats: Record<string, { date: string; sales: number; orders: number }> = {};
+
+  for (const order of orders) {
+    // 주문 날짜 추출 (YYYY-MM-DD)
+    const orderDate = String(order.order_date || '').split('T')[0];
+    if (!orderDate) continue;
+
+    // 주문 내 첫 번째 아이템의 상태로 주문 상태 판단
+    const items = order.items as Array<{ order_status?: string }> | undefined;
+    const primaryStatus = items?.[0]?.order_status || '';
+
+    // 입금대기, 취소/환불은 제외
+    if (PENDING_PAYMENT_STATUSES.includes(primaryStatus)) continue;
+    if (CANCEL_REFUND_STATUSES.includes(primaryStatus)) continue;
+
+    const amount = excludeVAT(getOrderTotalAmount(order));  // 부가세 제외
+
+    if (!dailyStats[orderDate]) {
+      dailyStats[orderDate] = { date: orderDate, sales: 0, orders: 0 };
+    }
+    dailyStats[orderDate].sales += amount;
+    dailyStats[orderDate].orders += 1;
+  }
+
+  // 날짜순 정렬 (오래된순 - ASC)
+  return Object.values(dailyStats).sort((a, b) => a.date.localeCompare(b.date));
+}
+
+// 시간별 매출 계산 (0~23시)
+function calculateHourlySales(orders: Array<Record<string, unknown>>) {
+  // 0~23시까지 초기화
+  const hourlyStats: Record<number, { hour: number; sales: number; orders: number }> = {};
+  for (let i = 0; i < 24; i++) {
+    hourlyStats[i] = { hour: i, sales: 0, orders: 0 };
+  }
+
+  for (const order of orders) {
+    // 주문 시간 추출
+    const orderDateStr = String(order.order_date || '');
+    if (!orderDateStr) continue;
+
+    // 주문 내 첫 번째 아이템의 상태로 주문 상태 판단
+    const items = order.items as Array<{ order_status?: string }> | undefined;
+    const primaryStatus = items?.[0]?.order_status || '';
+
+    // 입금대기, 취소/환불은 제외
+    if (PENDING_PAYMENT_STATUSES.includes(primaryStatus)) continue;
+    if (CANCEL_REFUND_STATUSES.includes(primaryStatus)) continue;
+
+    // 시간 추출 (KST 기준)
+    const orderDate = new Date(orderDateStr);
+    // UTC+9 적용
+    const kstHour = (orderDate.getUTCHours() + 9) % 24;
+
+    const amount = excludeVAT(getOrderTotalAmount(order));  // 부가세 제외
+
+    hourlyStats[kstHour].sales += amount;
+    hourlyStats[kstHour].orders += 1;
+  }
+
+  // 0시부터 23시까지 순서대로 반환
+  return Object.values(hourlyStats).sort((a, b) => a.hour - b.hour);
 }
 
 // 주문 상태 한글 변환
@@ -343,6 +564,12 @@ export async function GET(request: NextRequest) {
     // 탑 5 상품 계산
     const topProducts = calculateTopProducts(orders, 5);
 
+    // 일자별 매출 계산
+    const dailySales = calculateDailySales(orders);
+
+    // 시간별 매출 계산
+    const hourlySales = calculateHourlySales(orders);
+
     // 주문 상태 라벨 변환
     const orderStatusWithLabels = Object.entries(stats.orderStatusCount).map(([status, count]) => ({
       status,
@@ -351,20 +578,19 @@ export async function GET(request: NextRequest) {
     }));
 
     // 최근 주문 목록 (최신 10개)
-    const recentOrders = orders.slice(0, 10).map((order: {
-      order_id: string;
-      order_date: string;
-      payment_amount: string;
-      actual_order_amount?: { payment_amount: string };
-      items?: Array<{ product_name: string; order_status: string }>;
-    }) => ({
-      orderId: order.order_id,
-      orderDate: order.order_date,
-      status: getOrderStatusLabel(order.items?.[0]?.order_status || 'unknown'),
-      amount: Math.round(parseFloat(order.payment_amount || order.actual_order_amount?.payment_amount || '0')),
-      productName: order.items?.[0]?.product_name || '상품정보 없음',
-      itemCount: order.items?.length || 0,
-    }));
+    const recentOrders = orders.slice(0, 10).map((order: Record<string, unknown>) => {
+      const items = order.items as Array<{ product_name: string; order_status: string }> | undefined;
+      const actualOrderAmount = order.actual_order_amount as { payment_amount: string } | undefined;
+      const rawAmount = Math.round(parseFloat(String(order.payment_amount || actualOrderAmount?.payment_amount || '0')));
+      return {
+        orderId: String(order.order_id || ''),
+        orderDate: String(order.order_date || ''),
+        status: getOrderStatusLabel(items?.[0]?.order_status || 'unknown'),
+        amount: excludeVAT(rawAmount),  // 부가세 제외
+        productName: items?.[0]?.product_name || '상품정보 없음',
+        itemCount: items?.length || 0,
+      };
+    });
 
     const response = NextResponse.json({
       success: true,
@@ -388,6 +614,8 @@ export async function GET(request: NextRequest) {
       orderStatus: orderStatusWithLabels,
       paymentMethods: stats.paymentMethodCount,
       topProducts,
+      dailySales,
+      hourlySales,
       recentOrders,
       lastUpdated: new Date().toISOString(),
     });

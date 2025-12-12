@@ -11,7 +11,7 @@ interface ExecutionResult {
   suggestions?: string[];
 }
 
-type ScriptTab = 'sales' | 'ads' | 'realtime' | 'period-sales';
+type ScriptTab = 'sales' | 'ads' | 'realtime' | 'period-sales' | 'meta-ads';
 
 export default function AdminDashboard() {
   const router = useRouter();
@@ -120,6 +120,7 @@ export default function AdminDashboard() {
     };
     orderStatus: Array<{ status: string; label: string; count: number }>;
     topProducts: Array<{ name: string; quantity: number; sales: number }>;
+    hourlySales: Array<{ hour: number; sales: number; orders: number }>;
     recentOrders: Array<{
       orderId: string;
       orderDate: string;
@@ -158,6 +159,7 @@ export default function AdminDashboard() {
     };
     orderStatus: Array<{ status: string; label: string; count: number }>;
     topProducts: Array<{ name: string; quantity: number; sales: number }>;
+    dailySales?: Array<{ date: string; sales: number; orders: number }>;
     recentOrders: Array<{
       orderId: string;
       orderDate: string;
@@ -171,9 +173,38 @@ export default function AdminDashboard() {
   const [periodSalesLoading, setPeriodSalesLoading] = useState(false);
   const [periodSalesError, setPeriodSalesError] = useState<string | null>(null);
 
+  // 기간 비교용 state
+  const [compareEnabled, setCompareEnabled] = useState(false);
+  const [comparePeriodSales, setComparePeriodSales] = useState<{
+    success: boolean;
+    startDate: string;
+    endDate: string;
+    stats: {
+      totalSales: number;
+      totalOrders: number;
+      validOrders: number;
+      averageOrderValue: number;
+    };
+    topProducts: Array<{ name: string; quantity: number; sales: number }>;
+    dailySales?: Array<{ date: string; sales: number; orders: number }>;
+  } | null>(null);
+
+  // Meta Ads 탭용 state
+  const [metaAdsQuery, setMetaAdsQuery] = useState('');
+  const [metaAdsLoading, setMetaAdsLoading] = useState(false);
+  const [metaAdsError, setMetaAdsError] = useState<string | null>(null);
+  const [metaAdsResults, setMetaAdsResults] = useState<{
+    success: boolean;
+    searchQuery: string;
+    totalItems: number;
+    items: Array<{ url: string; type: 'image' | 'video'; width?: number; height?: number }>;
+  } | null>(null);
+
   // Refs (must be at the top level)
   const prevStepsRef = useRef<string>('');
   const lastLogCountRef = useRef<number>(0);
+  const workflowCompletedRef = useRef<boolean>(false);
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const availableBrands = ['바르너', '릴리이브', '보호리', '먼슬리픽', '색동서울'];
   const availableAdsBrands = ['바르너', '릴리이브'];  // 광고용 브랜드
@@ -226,14 +257,15 @@ export default function AdminDashboard() {
   // 컴포넌트 언마운트 시 폴링 중지
   useEffect(() => {
     return () => {
-      if (pollingInterval) {
-        clearInterval(pollingInterval);
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
       }
       if (autoRefreshInterval) {
         clearInterval(autoRefreshInterval);
       }
     };
-  }, [pollingInterval, autoRefreshInterval]);
+  }, [autoRefreshInterval]);
 
   // 컴포넌트 마운트 시 실행 로그 가져오기
   useEffect(() => {
@@ -497,33 +529,152 @@ export default function AdminDashboard() {
     }
   }, [activeTab, realtimeInitialized]);
 
-  // 기간별 매출 데이터 가져오기
+  // 기간별 매출 데이터 가져오기 (10일씩 나눠서 순차 조회)
   const fetchPeriodSales = async () => {
     if (!periodSalesStartDate || !periodSalesEndDate) {
       setPeriodSalesError('시작일과 종료일을 선택해주세요');
       return;
     }
 
+    const startDate = new Date(periodSalesStartDate);
+    const endDate = new Date(periodSalesEndDate);
+
     // 날짜 유효성 검사
-    if (new Date(periodSalesStartDate) > new Date(periodSalesEndDate)) {
+    if (startDate > endDate) {
       setPeriodSalesError('시작일이 종료일보다 늦을 수 없습니다');
+      return;
+    }
+
+    // 기간 제한: 31일 이하
+    const periodDays = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+    if (periodDays > 31) {
+      setPeriodSalesError('조회 기간은 31일 이하로 설정해주세요');
       return;
     }
 
     setPeriodSalesLoading(true);
     setPeriodSalesError(null);
-    try {
-      const response = await fetch(`/api/cafe24?startDate=${periodSalesStartDate}&endDate=${periodSalesEndDate}`);
-      const data = await response.json();
+    setComparePeriodSales(null);
 
-      if (data.success) {
-        setPeriodSales(data);
-      } else if (data.needsAuth) {
-        setCafe24NeedsAuth(true);
-        setCafe24AuthUrl(data.authUrl);
-        setPeriodSalesError(data.error || 'Cafe24 인증이 필요합니다');
-      } else {
-        setPeriodSalesError(data.error || '데이터를 가져올 수 없습니다');
+    // 날짜 포맷 함수
+    const formatDate = (d: Date) => {
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    };
+
+    // 10일씩 기간 분할
+    const chunkDays = 10;
+    const dateRanges: Array<{ start: string; end: string }> = [];
+    let currentStart = new Date(startDate);
+
+    while (currentStart <= endDate) {
+      const chunkEnd = new Date(currentStart);
+      chunkEnd.setDate(chunkEnd.getDate() + chunkDays - 1);
+      const actualEnd = chunkEnd > endDate ? endDate : chunkEnd;
+
+      dateRanges.push({
+        start: formatDate(currentStart),
+        end: formatDate(actualEnd)
+      });
+
+      currentStart = new Date(actualEnd);
+      currentStart.setDate(currentStart.getDate() + 1);
+    }
+
+    console.log('[PeriodSales] 기간 분할:', dateRanges.length, '개 구간');
+
+    try {
+      // 각 구간 순차 조회 및 데이터 합치기
+      const dailySalesMap = new Map<string, { sales: number; orders: number }>();
+      let totalCancelledSales = 0;
+      let totalCancelledOrders = 0;
+      let totalPendingOrders = 0;
+      let lastSuccessData: Record<string, unknown> | null = null;
+
+      for (let i = 0; i < dateRanges.length; i++) {
+        const range = dateRanges[i];
+        console.log(`[PeriodSales] ${i + 1}/${dateRanges.length} 조회 중: ${range.start} ~ ${range.end}`);
+
+        try {
+          const response = await fetch(`/api/cafe24?startDate=${range.start}&endDate=${range.end}`);
+          const data = await response.json();
+
+          if (data.needsAuth) {
+            setCafe24NeedsAuth(true);
+            setCafe24AuthUrl(data.authUrl);
+            setPeriodSalesError(data.error || 'Cafe24 인증이 필요합니다');
+            setPeriodSalesLoading(false);
+            return;
+          }
+
+          if (data.success) {
+            lastSuccessData = data;
+            data.dailySales?.forEach((day: { date: string; sales: number; orders: number }) => {
+              const existing = dailySalesMap.get(day.date);
+              if (existing) {
+                // 기존 값에 추가 (중복 방지)
+                dailySalesMap.set(day.date, {
+                  sales: Math.max(existing.sales, day.sales),
+                  orders: Math.max(existing.orders, day.orders)
+                });
+              } else {
+                dailySalesMap.set(day.date, { sales: day.sales, orders: day.orders });
+              }
+            });
+            totalCancelledSales += data.cancelledSales || 0;
+            totalCancelledOrders += data.cancelledOrders || 0;
+            totalPendingOrders += data.pendingOrders || 0;
+            console.log(`[PeriodSales] ${range.start}~${range.end}: ${data.dailySales?.length || 0}일 데이터`);
+          }
+        } catch (rangeError) {
+          console.error(`[PeriodSales] ${range.start}~${range.end} 조회 실패:`, rangeError);
+        }
+      }
+
+      // 최종 데이터 정리
+      const finalDailySales = Array.from(dailySalesMap.entries())
+        .map(([date, data]) => ({ date, ...data }))
+        .sort((a, b) => a.date.localeCompare(b.date));
+
+      const totalSales = finalDailySales.reduce((sum, day) => sum + day.sales, 0);
+      const totalOrders = finalDailySales.reduce((sum, day) => sum + day.orders, 0);
+
+      console.log('[PeriodSales] 최종 결과 - 일수:', finalDailySales.length, '총 매출:', totalSales.toLocaleString());
+
+      const finalData = {
+        success: true,
+        startDate: periodSalesStartDate,
+        endDate: periodSalesEndDate,
+        lastUpdated: new Date().toISOString(),
+        dailySales: finalDailySales,
+        totalSales,
+        totalOrders,
+        cancelledSales: totalCancelledSales,
+        cancelledOrders: totalCancelledOrders,
+        pendingOrders: totalPendingOrders,
+        ...(lastSuccessData || {})
+      };
+
+      setPeriodSales(finalData);
+
+      // 비교 기능이 활성화되어 있으면 이전 동일 기간 데이터도 가져오기
+      if (compareEnabled) {
+        const compareEndDate = new Date(startDate);
+        compareEndDate.setDate(compareEndDate.getDate() - 1);
+        const compareStartDate = new Date(compareEndDate);
+        compareStartDate.setDate(compareStartDate.getDate() - periodDays + 1);
+
+        const compareStartStr = formatDate(compareStartDate);
+        const compareEndStr = formatDate(compareEndDate);
+
+        const compareResponse = await fetch(`/api/cafe24?startDate=${compareStartStr}&endDate=${compareEndStr}`);
+        const compareData = await compareResponse.json();
+
+        if (compareData.success) {
+          setComparePeriodSales(compareData);
+        }
       }
     } catch (error) {
       console.error('기간별 매출 조회 오류:', error);
@@ -608,7 +759,91 @@ export default function AdminDashboard() {
     if (user.role === 'admin') return true;
     // sales_viewer는 실시간 매출과 기간별 매출 탭 모두 접근 가능
     if (user.role === 'sales_viewer') return tab === 'realtime' || tab === 'period-sales';
-    return tab !== 'realtime' && tab !== 'period-sales'; // user 권한은 스크래핑만
+    // user 권한은 스크래핑 + meta-ads
+    return tab !== 'realtime' && tab !== 'period-sales';
+  };
+
+  // Meta Ads 검색 함수 (GitHub Actions 트리거 + 폴링)
+  const fetchMetaAds = async () => {
+    if (!metaAdsQuery.trim()) {
+      setMetaAdsError('검색어를 입력해주세요.');
+      return;
+    }
+
+    setMetaAdsLoading(true);
+    setMetaAdsError(null);
+    setMetaAdsResults(null);
+
+    try {
+      // 1. GitHub Actions workflow 트리거
+      const triggerResponse = await fetch('/api/meta-ads', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ searchQuery: metaAdsQuery, maxScroll: 15 })
+      });
+
+      const triggerData = await triggerResponse.json();
+
+      if (!triggerResponse.ok || !triggerData.success) {
+        setMetaAdsError(triggerData.error || '스크래핑 시작에 실패했습니다.');
+        setMetaAdsLoading(false);
+        return;
+      }
+
+      const { requestId } = triggerData;
+
+      // 2. 폴링으로 결과 대기 (최대 3분, 5초 간격)
+      const maxAttempts = 36;
+      let attempts = 0;
+
+      const pollResults = async (): Promise<void> => {
+        attempts++;
+
+        try {
+          const resultResponse = await fetch(`/api/meta-ads?requestId=${requestId}`);
+          const resultData = await resultResponse.json();
+
+          if (resultData.success === true) {
+            // 스크래핑 완료
+            setMetaAdsResults(resultData);
+            setMetaAdsLoading(false);
+            return;
+          } else if (resultData.success === false && resultData.error) {
+            // 스크래핑 실패
+            setMetaAdsError(resultData.error);
+            setMetaAdsLoading(false);
+            return;
+          } else if (resultData.status === 'pending' || resultData.status === 'not_found') {
+            // 아직 진행 중
+            if (attempts >= maxAttempts) {
+              setMetaAdsError('시간 초과: 스크래핑이 너무 오래 걸립니다. 잠시 후 다시 시도해주세요.');
+              setMetaAdsLoading(false);
+              return;
+            }
+            // 5초 후 다시 폴링
+            setTimeout(pollResults, 5000);
+          } else {
+            setMetaAdsError('알 수 없는 상태입니다.');
+            setMetaAdsLoading(false);
+          }
+        } catch {
+          if (attempts >= maxAttempts) {
+            setMetaAdsError('결과 조회 중 오류가 발생했습니다.');
+            setMetaAdsLoading(false);
+            return;
+          }
+          setTimeout(pollResults, 5000);
+        }
+      };
+
+      // 10초 후 첫 폴링 시작 (workflow 시작 시간 고려)
+      setTimeout(pollResults, 10000);
+
+    } catch (error) {
+      console.error('Meta Ads fetch error:', error);
+      setMetaAdsError('광고 검색 중 오류가 발생했습니다.');
+      setMetaAdsLoading(false);
+    }
   };
 
   // 로딩 중이면 로딩 화면 표시
@@ -692,8 +927,9 @@ export default function AdminDashboard() {
           }
         }
 
-        // 워크플로우가 완료되면 폴링 중지 및 실패 로그 업데이트
-        if (data.status === 'completed') {
+        // 워크플로우가 완료되면 폴링 중지 및 실패 로그 업데이트 (한 번만 처리)
+        if (data.status === 'completed' && !workflowCompletedRef.current) {
+          workflowCompletedRef.current = true;
           stopPolling();
           const emoji = data.conclusion === 'success' ? '🎉' : '❌';
           addConsoleLog(`${emoji} 워크플로우 완료: ${data.conclusion === 'success' ? '성공!' : '실패'}`);
@@ -785,28 +1021,31 @@ export default function AdminDashboard() {
   };
 
   const startPolling = () => {
-    if (pollingInterval) return;
+    if (pollingIntervalRef.current) return;
 
     // 폴링 시작 시 ref 초기화
     prevStepsRef.current = '';
     lastLogCountRef.current = 0;
+    workflowCompletedRef.current = false;
 
     setIsPolling(true);
     // 먼저 즉시 한번 호출
     fetchWorkflowStatus();
     // 그 후 3초마다 폴링
     const interval = setInterval(fetchWorkflowStatus, 3000);
+    pollingIntervalRef.current = interval;
     setPollingInterval(interval);
     addConsoleLog('🔄 GitHub Actions 실시간 모니터링 시작...');
   };
 
   const stopPolling = () => {
-    if (pollingInterval) {
-      clearInterval(pollingInterval);
+    if (pollingIntervalRef.current) {
+      clearInterval(pollingIntervalRef.current);
+      pollingIntervalRef.current = null;
       setPollingInterval(null);
+      setIsPolling(false);
+      addConsoleLog('⏹️ GitHub Actions 상태 모니터링 중지');
     }
-    setIsPolling(false);
-    addConsoleLog('⏹️ GitHub Actions 상태 모니터링 중지');
   };
 
   const fetchExecutionLogs = async () => {
@@ -1314,6 +1553,18 @@ export default function AdminDashboard() {
                   }`}
                 >
                   기간별 매출 (바르너)
+                </button>
+              )}
+              {canAccessTab('meta-ads') && (
+                <button
+                  onClick={() => setActiveTab('meta-ads')}
+                  className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                    activeTab === 'meta-ads'
+                      ? 'border-blue-500 text-blue-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  }`}
+                >
+                  Meta 광고 검색
                 </button>
               )}
             </nav>
@@ -2104,6 +2355,73 @@ export default function AdminDashboard() {
                         </div>
                       )}
 
+                      {/* 시간별 매출 현황 */}
+                      {realtimeSales.hourlySales && realtimeSales.hourlySales.length > 0 && (
+                        <div className="bg-white border border-gray-200 rounded-lg p-4">
+                          <h3 className="text-sm font-medium text-gray-900 mb-4">시간별 매출 현황</h3>
+                          <div className="space-y-2">
+                            {/* 매출 바 차트 */}
+                            {(() => {
+                              const maxSales = Math.max(...realtimeSales.hourlySales.map(h => h.sales), 1);
+                              const currentHour = new Date().getHours();
+                              return realtimeSales.hourlySales.map((hourData) => {
+                                const percentage = (hourData.sales / maxSales) * 100;
+                                const isCurrentHour = hourData.hour === currentHour;
+                                return (
+                                  <div key={hourData.hour} className="flex items-center gap-2">
+                                    <div className={`w-12 text-xs text-right ${isCurrentHour ? 'font-bold text-blue-600' : 'text-gray-500'}`}>
+                                      {String(hourData.hour).padStart(2, '0')}시
+                                    </div>
+                                    <div className="flex-1 h-6 bg-gray-100 rounded-sm overflow-hidden">
+                                      <div
+                                        className={`h-full transition-all duration-300 ${isCurrentHour ? 'bg-blue-500' : 'bg-green-400'}`}
+                                        style={{ width: `${percentage}%` }}
+                                      />
+                                    </div>
+                                    <div className={`w-24 text-xs text-right ${isCurrentHour ? 'font-bold text-blue-600' : 'text-gray-700'}`}>
+                                      {hourData.sales > 0 ? `${hourData.sales.toLocaleString()}원` : '-'}
+                                    </div>
+                                    <div className={`w-12 text-xs text-right ${isCurrentHour ? 'font-bold text-blue-600' : 'text-gray-500'}`}>
+                                      {hourData.orders > 0 ? `${hourData.orders}건` : '-'}
+                                    </div>
+                                  </div>
+                                );
+                              });
+                            })()}
+                          </div>
+                          {/* 요약 정보 */}
+                          <div className="mt-4 pt-4 border-t border-gray-100 grid grid-cols-3 gap-4 text-center">
+                            <div>
+                              <div className="text-xs text-gray-500">최고 매출 시간대</div>
+                              <div className="text-sm font-semibold text-green-600">
+                                {(() => {
+                                  const maxHour = realtimeSales.hourlySales.reduce((max, curr) =>
+                                    curr.sales > max.sales ? curr : max, realtimeSales.hourlySales[0]);
+                                  return maxHour.sales > 0 ? `${String(maxHour.hour).padStart(2, '0')}시` : '-';
+                                })()}
+                              </div>
+                            </div>
+                            <div>
+                              <div className="text-xs text-gray-500">총 주문 시간대</div>
+                              <div className="text-sm font-semibold text-blue-600">
+                                {realtimeSales.hourlySales.filter(h => h.orders > 0).length}개 시간대
+                              </div>
+                            </div>
+                            <div>
+                              <div className="text-xs text-gray-500">시간당 평균 매출</div>
+                              <div className="text-sm font-semibold text-purple-600">
+                                {(() => {
+                                  const hoursWithSales = realtimeSales.hourlySales.filter(h => h.sales > 0);
+                                  if (hoursWithSales.length === 0) return '-';
+                                  const avgSales = Math.round(hoursWithSales.reduce((sum, h) => sum + h.sales, 0) / hoursWithSales.length);
+                                  return `${avgSales.toLocaleString()}원`;
+                                })()}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
                       {/* 오늘의 TOP 5 상품 */}
                       {realtimeSales.topProducts && realtimeSales.topProducts.length > 0 && (
                         <div className="bg-white border border-gray-200 rounded-lg">
@@ -2235,15 +2553,54 @@ export default function AdminDashboard() {
                         {periodSalesLoading ? '조회 중...' : '조회'}
                       </button>
                     </div>
+                    {/* 비교 토글 */}
+                    <div className="mt-3 flex items-center gap-4">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={compareEnabled}
+                          onChange={(e) => setCompareEnabled(e.target.checked)}
+                          className="w-4 h-4 text-purple-600 border-gray-300 rounded focus:ring-purple-500"
+                        />
+                        <span className="text-sm text-gray-700">이전 기간과 비교</span>
+                      </label>
+                      {compareEnabled && periodSalesStartDate && periodSalesEndDate && (
+                        <span className="text-xs text-gray-500">
+                          (비교 기간: {(() => {
+                            const startDate = new Date(periodSalesStartDate);
+                            const endDate = new Date(periodSalesEndDate);
+                            const periodDays = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+                            const compareEndDate = new Date(startDate);
+                            compareEndDate.setDate(compareEndDate.getDate() - 1);
+                            const compareStartDate = new Date(compareEndDate);
+                            compareStartDate.setDate(compareStartDate.getDate() - periodDays + 1);
+                            return `${compareStartDate.toISOString().split('T')[0]} ~ ${compareEndDate.toISOString().split('T')[0]}`;
+                          })()})
+                        </span>
+                      )}
+                    </div>
                     {/* 빠른 선택 버튼 */}
-                    <div className="mt-3 flex gap-2">
+                    <div className="mt-3 flex flex-wrap gap-2">
                       <button
                         onClick={() => {
                           const today = new Date();
+                          // 로컬 시간대 기준으로 YYYY-MM-DD 포맷
+                          const formatDate = (d: Date) => {
+                            const year = d.getFullYear();
+                            const month = String(d.getMonth() + 1).padStart(2, '0');
+                            const day = String(d.getDate()).padStart(2, '0');
+                            return `${year}-${month}-${day}`;
+                          };
+                          // 이번 주 월요일 찾기 (월요일 = 1)
+                          const dayOfWeek = today.getDay();
+                          const diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
                           const startOfWeek = new Date(today);
-                          startOfWeek.setDate(today.getDate() - today.getDay());
-                          setPeriodSalesStartDate(startOfWeek.toISOString().split('T')[0]);
-                          setPeriodSalesEndDate(today.toISOString().split('T')[0]);
+                          startOfWeek.setDate(today.getDate() + diffToMonday);
+                          // 이번 주 일요일 (월요일 + 6일)
+                          const endOfWeek = new Date(startOfWeek);
+                          endOfWeek.setDate(startOfWeek.getDate() + 6);
+                          setPeriodSalesStartDate(formatDate(startOfWeek));
+                          setPeriodSalesEndDate(formatDate(endOfWeek));
                         }}
                         className="px-3 py-1 text-xs bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300"
                       >
@@ -2252,9 +2609,43 @@ export default function AdminDashboard() {
                       <button
                         onClick={() => {
                           const today = new Date();
+                          // 로컬 시간대 기준으로 YYYY-MM-DD 포맷
+                          const formatDate = (d: Date) => {
+                            const year = d.getFullYear();
+                            const month = String(d.getMonth() + 1).padStart(2, '0');
+                            const day = String(d.getDate()).padStart(2, '0');
+                            return `${year}-${month}-${day}`;
+                          };
+                          // 지난 주 월요일 찾기
+                          const dayOfWeek = today.getDay();
+                          const diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+                          const thisMonday = new Date(today);
+                          thisMonday.setDate(today.getDate() + diffToMonday);
+                          const lastMonday = new Date(thisMonday);
+                          lastMonday.setDate(thisMonday.getDate() - 7);
+                          const lastSunday = new Date(lastMonday);
+                          lastSunday.setDate(lastMonday.getDate() + 6);
+                          setPeriodSalesStartDate(formatDate(lastMonday));
+                          setPeriodSalesEndDate(formatDate(lastSunday));
+                        }}
+                        className="px-3 py-1 text-xs bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300"
+                      >
+                        지난 주
+                      </button>
+                      <button
+                        onClick={() => {
+                          const today = new Date();
                           const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-                          setPeriodSalesStartDate(startOfMonth.toISOString().split('T')[0]);
-                          setPeriodSalesEndDate(today.toISOString().split('T')[0]);
+                          const endOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+                          // 로컬 시간대 기준으로 YYYY-MM-DD 포맷
+                          const formatDate = (d: Date) => {
+                            const year = d.getFullYear();
+                            const month = String(d.getMonth() + 1).padStart(2, '0');
+                            const day = String(d.getDate()).padStart(2, '0');
+                            return `${year}-${month}-${day}`;
+                          };
+                          setPeriodSalesStartDate(formatDate(startOfMonth));
+                          setPeriodSalesEndDate(formatDate(endOfMonth));
                         }}
                         className="px-3 py-1 text-xs bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300"
                       >
@@ -2263,10 +2654,36 @@ export default function AdminDashboard() {
                       <button
                         onClick={() => {
                           const today = new Date();
+                          const startOfLastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+                          const endOfLastMonth = new Date(today.getFullYear(), today.getMonth(), 0);
+                          // 로컬 시간대 기준으로 YYYY-MM-DD 포맷
+                          const formatDate = (d: Date) => {
+                            const year = d.getFullYear();
+                            const month = String(d.getMonth() + 1).padStart(2, '0');
+                            const day = String(d.getDate()).padStart(2, '0');
+                            return `${year}-${month}-${day}`;
+                          };
+                          setPeriodSalesStartDate(formatDate(startOfLastMonth));
+                          setPeriodSalesEndDate(formatDate(endOfLastMonth));
+                        }}
+                        className="px-3 py-1 text-xs bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300"
+                      >
+                        지난 달
+                      </button>
+                      <button
+                        onClick={() => {
+                          const today = new Date();
+                          // 로컬 시간대 기준으로 YYYY-MM-DD 포맷
+                          const formatDate = (d: Date) => {
+                            const year = d.getFullYear();
+                            const month = String(d.getMonth() + 1).padStart(2, '0');
+                            const day = String(d.getDate()).padStart(2, '0');
+                            return `${year}-${month}-${day}`;
+                          };
                           const lastWeek = new Date(today);
-                          lastWeek.setDate(today.getDate() - 7);
-                          setPeriodSalesStartDate(lastWeek.toISOString().split('T')[0]);
-                          setPeriodSalesEndDate(today.toISOString().split('T')[0]);
+                          lastWeek.setDate(today.getDate() - 6);
+                          setPeriodSalesStartDate(formatDate(lastWeek));
+                          setPeriodSalesEndDate(formatDate(today));
                         }}
                         className="px-3 py-1 text-xs bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300"
                       >
@@ -2275,10 +2692,17 @@ export default function AdminDashboard() {
                       <button
                         onClick={() => {
                           const today = new Date();
+                          // 로컬 시간대 기준으로 YYYY-MM-DD 포맷
+                          const formatDate = (d: Date) => {
+                            const year = d.getFullYear();
+                            const month = String(d.getMonth() + 1).padStart(2, '0');
+                            const day = String(d.getDate()).padStart(2, '0');
+                            return `${year}-${month}-${day}`;
+                          };
                           const last30Days = new Date(today);
-                          last30Days.setDate(today.getDate() - 30);
-                          setPeriodSalesStartDate(last30Days.toISOString().split('T')[0]);
-                          setPeriodSalesEndDate(today.toISOString().split('T')[0]);
+                          last30Days.setDate(today.getDate() - 29);
+                          setPeriodSalesStartDate(formatDate(last30Days));
+                          setPeriodSalesEndDate(formatDate(today));
                         }}
                         className="px-3 py-1 text-xs bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300"
                       >
@@ -2338,13 +2762,29 @@ export default function AdminDashboard() {
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                         {/* 확정 매출 */}
                         <div className="bg-gradient-to-br from-purple-500 to-purple-600 rounded-lg p-4 text-white">
-                          <div className="text-sm opacity-80">확정 매출</div>
+                          <div className="text-sm opacity-80">확정 매출 (부가세 제외)</div>
                           <div className="text-2xl font-bold mt-1">
                             {periodSales.stats.totalSales.toLocaleString()}원
                           </div>
                           <div className="text-xs mt-2 opacity-70">
                             {periodSales.stats.validOrders}건 | 평균 {periodSales.stats.averageOrderValue.toLocaleString()}원
                           </div>
+                          {comparePeriodSales && (
+                            <div className="mt-2 pt-2 border-t border-white/30">
+                              <div className="text-xs opacity-70">이전 기간: {comparePeriodSales.stats.totalSales.toLocaleString()}원</div>
+                              {(() => {
+                                const diff = periodSales.stats.totalSales - comparePeriodSales.stats.totalSales;
+                                const percent = comparePeriodSales.stats.totalSales > 0
+                                  ? ((diff / comparePeriodSales.stats.totalSales) * 100).toFixed(1)
+                                  : 0;
+                                return (
+                                  <div className={`text-sm font-medium ${diff >= 0 ? 'text-green-200' : 'text-red-200'}`}>
+                                    {diff >= 0 ? '▲' : '▼'} {Math.abs(diff).toLocaleString()}원 ({diff >= 0 ? '+' : ''}{percent}%)
+                                  </div>
+                                );
+                              })()}
+                            </div>
+                          )}
                         </div>
 
                         {/* 입금대기 */}
@@ -2370,30 +2810,284 @@ export default function AdminDashboard() {
                         </div>
                       </div>
 
+                      {/* 기간 비교 요약 */}
+                      {comparePeriodSales && (
+                        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                          <h3 className="text-md font-semibold text-blue-800 mb-3">
+                            기간 비교 ({comparePeriodSales.startDate} ~ {comparePeriodSales.endDate} vs 현재)
+                          </h3>
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                            <div>
+                              <div className="text-gray-500">매출 변화</div>
+                              {(() => {
+                                const diff = periodSales.stats.totalSales - comparePeriodSales.stats.totalSales;
+                                const percent = comparePeriodSales.stats.totalSales > 0
+                                  ? ((diff / comparePeriodSales.stats.totalSales) * 100).toFixed(1)
+                                  : 0;
+                                return (
+                                  <div className={`font-bold ${diff >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                    {diff >= 0 ? '+' : ''}{diff.toLocaleString()}원 ({diff >= 0 ? '+' : ''}{percent}%)
+                                  </div>
+                                );
+                              })()}
+                            </div>
+                            <div>
+                              <div className="text-gray-500">주문수 변화</div>
+                              {(() => {
+                                const diff = periodSales.stats.validOrders - comparePeriodSales.stats.validOrders;
+                                const percent = comparePeriodSales.stats.validOrders > 0
+                                  ? ((diff / comparePeriodSales.stats.validOrders) * 100).toFixed(1)
+                                  : 0;
+                                return (
+                                  <div className={`font-bold ${diff >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                    {diff >= 0 ? '+' : ''}{diff}건 ({diff >= 0 ? '+' : ''}{percent}%)
+                                  </div>
+                                );
+                              })()}
+                            </div>
+                            <div>
+                              <div className="text-gray-500">평균 주문액 변화</div>
+                              {(() => {
+                                const diff = periodSales.stats.averageOrderValue - comparePeriodSales.stats.averageOrderValue;
+                                const percent = comparePeriodSales.stats.averageOrderValue > 0
+                                  ? ((diff / comparePeriodSales.stats.averageOrderValue) * 100).toFixed(1)
+                                  : 0;
+                                return (
+                                  <div className={`font-bold ${diff >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                    {diff >= 0 ? '+' : ''}{diff.toLocaleString()}원 ({diff >= 0 ? '+' : ''}{percent}%)
+                                  </div>
+                                );
+                              })()}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 일자별 매출 */}
+                      {periodSales && periodSalesStartDate && periodSalesEndDate && (
+                        <div className="bg-white border border-gray-200 rounded-lg p-4">
+                          <h3 className="text-md font-semibold text-gray-800 mb-4">일자별 매출</h3>
+                          <div className="overflow-x-auto">
+                            <table className="min-w-full divide-y divide-gray-200">
+                              <thead className="bg-gray-50">
+                                <tr>
+                                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">날짜</th>
+                                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">요일</th>
+                                  <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">매출</th>
+                                  <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">전일 대비</th>
+                                  <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">주문수</th>
+                                </tr>
+                              </thead>
+                              <tbody className="bg-white divide-y divide-gray-200">
+                                {(() => {
+                                  // 선택된 기간의 모든 날짜 생성
+                                  const allDates: string[] = [];
+                                  const start = new Date(periodSalesStartDate);
+                                  const end = new Date(periodSalesEndDate);
+                                  const today = new Date();
+                                  today.setHours(0, 0, 0, 0);
+
+                                  for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+                                    allDates.push(d.toISOString().split('T')[0]);
+                                  }
+
+                                  // dailySales 데이터를 날짜별로 맵핑
+                                  const salesMap = new Map<string, { sales: number; orders: number }>();
+                                  periodSales.dailySales?.forEach(day => {
+                                    salesMap.set(day.date, { sales: day.sales, orders: day.orders });
+                                  });
+
+                                  return allDates.map((dateStr, index) => {
+                                    const date = new Date(dateStr);
+                                    const dayOfWeek = ['일', '월', '화', '수', '목', '금', '토'][date.getDay()];
+                                    const isWeekend = date.getDay() === 0 || date.getDay() === 6;
+                                    const isFuture = date > today;
+                                    const dayData = salesMap.get(dateStr);
+                                    const prevDateStr = index > 0 ? allDates[index - 1] : null;
+                                    const prevDayData = prevDateStr ? salesMap.get(prevDateStr) : null;
+
+                                    const sales = dayData?.sales ?? null;
+                                    const orders = dayData?.orders ?? null;
+                                    const diff = sales !== null && prevDayData ? sales - prevDayData.sales : null;
+                                    const diffPercent = diff !== null && prevDayData && prevDayData.sales > 0
+                                      ? ((diff / prevDayData.sales) * 100).toFixed(1)
+                                      : null;
+
+                                    return (
+                                      <tr key={dateStr} className={`hover:bg-gray-50 ${isWeekend ? 'bg-blue-50/30' : ''} ${isFuture ? 'opacity-50' : ''}`}>
+                                        <td className="px-4 py-2 text-sm text-gray-900">{dateStr}</td>
+                                        <td className={`px-4 py-2 text-sm ${isWeekend ? 'text-blue-600 font-medium' : 'text-gray-500'}`}>{dayOfWeek}</td>
+                                        <td className="px-4 py-2 text-sm text-gray-900 text-right font-medium">
+                                          {sales !== null ? `${sales.toLocaleString()}원` : <span className="text-gray-400">-</span>}
+                                        </td>
+                                        <td className="px-4 py-2 text-sm text-right">
+                                          {diff !== null ? (
+                                            <span className={diff >= 0 ? 'text-green-600' : 'text-red-600'}>
+                                              {diff >= 0 ? '▲' : '▼'} {Math.abs(diff).toLocaleString()}원
+                                              <span className="text-xs ml-1">({diff >= 0 ? '+' : ''}{diffPercent}%)</span>
+                                            </span>
+                                          ) : (
+                                            <span className="text-gray-400">-</span>
+                                          )}
+                                        </td>
+                                        <td className="px-4 py-2 text-sm text-gray-500 text-right">
+                                          {orders !== null ? `${orders}건` : <span className="text-gray-400">-</span>}
+                                        </td>
+                                      </tr>
+                                    );
+                                  });
+                                })()}
+                              </tbody>
+                              <tfoot className="bg-gray-100">
+                                <tr>
+                                  <td className="px-4 py-2 text-sm font-bold text-gray-900" colSpan={2}>합계</td>
+                                  <td className="px-4 py-2 text-sm font-bold text-gray-900 text-right">
+                                    {(periodSales.dailySales?.reduce((sum, d) => sum + d.sales, 0) || 0).toLocaleString()}원
+                                  </td>
+                                  <td className="px-4 py-2 text-sm text-gray-500 text-right">
+                                    {periodSales.dailySales && periodSales.dailySales.length > 0
+                                      ? `평균 ${Math.round(periodSales.dailySales.reduce((sum, d) => sum + d.sales, 0) / periodSales.dailySales.length).toLocaleString()}원`
+                                      : '-'}
+                                  </td>
+                                  <td className="px-4 py-2 text-sm font-bold text-gray-500 text-right">
+                                    {(periodSales.dailySales?.reduce((sum, d) => sum + d.orders, 0) || 0)}건
+                                  </td>
+                                </tr>
+                              </tfoot>
+                            </table>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 요일별 평균 매출 (월~일 순서) */}
+                      {periodSales.dailySales && periodSales.dailySales.length > 1 && (
+                        <div className="bg-white border border-gray-200 rounded-lg p-4">
+                          <h3 className="text-md font-semibold text-gray-800 mb-4">
+                            요일별 평균 매출
+                            {comparePeriodSales && <span className="text-xs text-gray-500 ml-2">(이전 기간 동일 요일 대비)</span>}
+                          </h3>
+                          <div className="grid grid-cols-7 gap-2">
+                            {/* 월~일 순서: JS의 getDay()는 0=일, 1=월, ..., 6=토 */}
+                            {[
+                              { name: '월', jsDay: 1 },
+                              { name: '화', jsDay: 2 },
+                              { name: '수', jsDay: 3 },
+                              { name: '목', jsDay: 4 },
+                              { name: '금', jsDay: 5 },
+                              { name: '토', jsDay: 6 },
+                              { name: '일', jsDay: 0 },
+                            ].map(({ name: dayName, jsDay }) => {
+                              const dayData = periodSales.dailySales?.filter(d => new Date(d.date).getDay() === jsDay) || [];
+                              const totalSales = dayData.reduce((sum, d) => sum + d.sales, 0);
+                              const avgSales = dayData.length > 0 ? Math.round(totalSales / dayData.length) : 0;
+                              const avgOrders = dayData.length > 0
+                                ? Math.round(dayData.reduce((sum, d) => sum + d.orders, 0) / dayData.length)
+                                : 0;
+                              const isWeekend = jsDay === 0 || jsDay === 6;
+
+                              // 이전 기간의 동일 요일 데이터와 비교
+                              let prevDayData: typeof dayData = [];
+                              let prevAvgSales = 0;
+                              let diffFromPrev = 0;
+                              let diffPercentFromPrev = '0';
+
+                              if (comparePeriodSales?.dailySales) {
+                                prevDayData = comparePeriodSales.dailySales.filter(d => new Date(d.date).getDay() === jsDay);
+                                prevAvgSales = prevDayData.length > 0
+                                  ? Math.round(prevDayData.reduce((sum, d) => sum + d.sales, 0) / prevDayData.length)
+                                  : 0;
+                                diffFromPrev = avgSales - prevAvgSales;
+                                diffPercentFromPrev = prevAvgSales > 0 ? ((diffFromPrev / prevAvgSales) * 100).toFixed(1) : '0';
+                              }
+
+                              // 전체 평균 대비 (비교 기간 없을 때 사용)
+                              const allDaysAvg = periodSales.dailySales ?
+                                Math.round(periodSales.dailySales.reduce((sum, d) => sum + d.sales, 0) / periodSales.dailySales.length) : 0;
+                              const diffFromAvg = avgSales - allDaysAvg;
+                              const diffPercent = allDaysAvg > 0 ? ((diffFromAvg / allDaysAvg) * 100).toFixed(1) : '0';
+
+                              return (
+                                <div
+                                  key={jsDay}
+                                  className={`p-3 rounded-lg text-center ${
+                                    isWeekend ? 'bg-blue-50 border border-blue-200' : 'bg-gray-50 border border-gray-200'
+                                  }`}
+                                >
+                                  <div className={`text-sm font-bold ${isWeekend ? 'text-blue-600' : 'text-gray-700'}`}>
+                                    {dayName}
+                                  </div>
+                                  <div className="text-lg font-bold text-gray-900 mt-1">
+                                    {dayData.length > 0 ? avgSales.toLocaleString() : '-'}
+                                  </div>
+                                  <div className="text-xs text-gray-500">원/일</div>
+                                  {dayData.length > 0 && (
+                                    <>
+                                      <div className="text-xs text-gray-500 mt-1">{avgOrders}건/일</div>
+                                      {comparePeriodSales && prevDayData.length > 0 ? (
+                                        <div className={`text-xs mt-1 ${diffFromPrev >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                          {diffFromPrev >= 0 ? '+' : ''}{diffPercentFromPrev}%
+                                        </div>
+                                      ) : (
+                                        <div className={`text-xs mt-1 ${diffFromAvg >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                          {diffFromAvg >= 0 ? '+' : ''}{diffPercent}%
+                                        </div>
+                                      )}
+                                    </>
+                                  )}
+                                  <div className="text-xs text-gray-400 mt-1">({dayData.length}일)</div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+
                       {/* TOP 5 상품 */}
                       {periodSales.topProducts && periodSales.topProducts.length > 0 && (
                         <div className="bg-white border border-gray-200 rounded-lg p-4">
-                          <h3 className="text-md font-semibold text-gray-800 mb-4">TOP 5 상품</h3>
+                          <h3 className="text-md font-semibold text-gray-800 mb-4">TOP 5 상품 (부가세 제외)</h3>
                           <div className="space-y-3">
-                            {periodSales.topProducts.map((product, index) => (
-                              <div key={index} className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0">
-                                <div className="flex items-center gap-3">
-                                  <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
-                                    index === 0 ? 'bg-yellow-400 text-white' :
-                                    index === 1 ? 'bg-gray-300 text-gray-700' :
-                                    index === 2 ? 'bg-orange-400 text-white' :
-                                    'bg-gray-100 text-gray-600'
-                                  }`}>
-                                    {index + 1}
-                                  </span>
-                                  <span className="text-sm text-gray-800 truncate max-w-xs">{product.name}</span>
+                            {periodSales.topProducts.map((product, index) => {
+                              // 이전 기간의 같은 상품 찾기
+                              const prevProduct = comparePeriodSales?.topProducts?.find(p => p.name === product.name);
+                              const prevRank = prevProduct ? comparePeriodSales?.topProducts?.findIndex(p => p.name === product.name) : -1;
+                              const salesDiff = prevProduct ? product.sales - prevProduct.sales : null;
+
+                              return (
+                                <div key={index} className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0">
+                                  <div className="flex items-center gap-3">
+                                    <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
+                                      index === 0 ? 'bg-yellow-400 text-white' :
+                                      index === 1 ? 'bg-gray-300 text-gray-700' :
+                                      index === 2 ? 'bg-orange-400 text-white' :
+                                      'bg-gray-100 text-gray-600'
+                                    }`}>
+                                      {index + 1}
+                                    </span>
+                                    <div>
+                                      <span className="text-sm text-gray-800 truncate max-w-xs block">{product.name}</span>
+                                      {comparePeriodSales && prevRank !== undefined && prevRank >= 0 && (
+                                        <span className={`text-xs ${prevRank > index ? 'text-green-600' : prevRank < index ? 'text-red-600' : 'text-gray-400'}`}>
+                                          {prevRank > index ? `▲${prevRank - index}` : prevRank < index ? `▼${index - prevRank}` : '―'} (이전 {prevRank + 1}위)
+                                        </span>
+                                      )}
+                                      {comparePeriodSales && prevRank === -1 && (
+                                        <span className="text-xs text-blue-600">NEW</span>
+                                      )}
+                                    </div>
+                                  </div>
+                                  <div className="text-right">
+                                    <div className="text-sm font-medium text-gray-900">{product.sales.toLocaleString()}원</div>
+                                    <div className="text-xs text-gray-500">{product.quantity}개 판매</div>
+                                    {salesDiff !== null && (
+                                      <div className={`text-xs ${salesDiff >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                        {salesDiff >= 0 ? '+' : ''}{salesDiff.toLocaleString()}원
+                                      </div>
+                                    )}
+                                  </div>
                                 </div>
-                                <div className="text-right">
-                                  <div className="text-sm font-medium text-gray-900">{product.sales.toLocaleString()}원</div>
-                                  <div className="text-xs text-gray-500">{product.quantity}개 판매</div>
-                                </div>
-                              </div>
-                            ))}
+                              );
+                            })}
                           </div>
                         </div>
                       )}
@@ -2464,6 +3158,186 @@ export default function AdminDashboard() {
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                       </svg>
                       <p>조회할 기간을 선택하고 &apos;조회&apos; 버튼을 클릭하세요.</p>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {/* Meta 광고 검색 탭 */}
+              {activeTab === 'meta-ads' && (
+                <>
+                  <div className="mb-6">
+                    <h2 className="text-lg font-medium text-gray-900 mb-4">Meta 광고 라이브러리 검색</h2>
+                    <p className="text-sm text-gray-500 mb-4">
+                      Facebook/Instagram 광고 라이브러리에서 키워드로 광고를 검색합니다.
+                    </p>
+
+                    <div className="flex gap-3">
+                      <input
+                        type="text"
+                        value={metaAdsQuery}
+                        onChange={(e) => setMetaAdsQuery(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && !metaAdsLoading && fetchMetaAds()}
+                        placeholder="검색어 입력 (예: 바르너, skincare, 화장품)"
+                        className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 placeholder-gray-500 bg-white"
+                      />
+                      <button
+                        onClick={fetchMetaAds}
+                        disabled={metaAdsLoading || !metaAdsQuery.trim()}
+                        className={`px-6 py-2 rounded-lg font-medium transition-colors ${
+                          metaAdsLoading || !metaAdsQuery.trim()
+                            ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                            : 'bg-blue-600 text-white hover:bg-blue-700'
+                        }`}
+                      >
+                        {metaAdsLoading ? (
+                          <span className="flex items-center gap-2">
+                            <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                            </svg>
+                            검색 중...
+                          </span>
+                        ) : '검색'}
+                      </button>
+                      {metaAdsQuery.trim() && (
+                        <a
+                          href={`https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=KR&q=${encodeURIComponent(metaAdsQuery)}&search_type=keyword_unordered`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-4 py-2 rounded-lg font-medium bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors flex items-center gap-1"
+                        >
+                          <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                          </svg>
+                          직접 보기
+                        </a>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* 에러 메시지 */}
+                  {metaAdsError && (
+                    <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                      <div className="flex items-start gap-3">
+                        <svg className="h-5 w-5 text-yellow-600 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                        </svg>
+                        <div>
+                          <p className="text-yellow-800 font-medium">서버에서 직접 스크래핑이 제한됩니다</p>
+                          <p className="text-yellow-700 text-sm mt-1">
+                            아래 &quot;직접 보기&quot; 버튼을 클릭하여 Meta 광고 라이브러리에서 직접 확인하세요.
+                          </p>
+                          {metaAdsQuery.trim() && (
+                            <a
+                              href={`https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=KR&q=${encodeURIComponent(metaAdsQuery)}&search_type=keyword_unordered`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 mt-3 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
+                            >
+                              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                              </svg>
+                              Meta 광고 라이브러리에서 &quot;{metaAdsQuery}&quot; 검색하기
+                            </a>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 로딩 중 */}
+                  {metaAdsLoading && (
+                    <div className="text-center py-12">
+                      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+                      <p className="mt-4 text-gray-700 font-medium">GitHub Actions에서 스크래핑 중...</p>
+                      <p className="mt-2 text-gray-500 text-sm">1~2분 정도 소요됩니다. 잠시만 기다려주세요.</p>
+                      <div className="mt-4 flex items-center justify-center gap-2 text-xs text-gray-400">
+                        <span className="inline-block w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+                        실시간 데이터 수집 중
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 검색 결과 */}
+                  {metaAdsResults && !metaAdsLoading && (
+                    <div>
+                      <div className="mb-4 flex items-center justify-between">
+                        <div className="text-sm text-gray-600">
+                          <span className="font-medium">&quot;{metaAdsResults.searchQuery}&quot;</span> 검색 결과: {metaAdsResults.totalItems}개 미디어
+                        </div>
+                        <div className="flex gap-2">
+                          <span className="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded">
+                            이미지: {metaAdsResults.items.filter(i => i.type === 'image').length}
+                          </span>
+                          <span className="text-xs px-2 py-1 bg-purple-100 text-purple-700 rounded">
+                            영상: {metaAdsResults.items.filter(i => i.type === 'video').length}
+                          </span>
+                        </div>
+                      </div>
+
+                      {metaAdsResults.items.length === 0 ? (
+                        <div className="text-center py-12 text-gray-500">
+                          <svg className="mx-auto h-12 w-12 text-gray-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                          <p>검색 결과가 없습니다. 다른 키워드로 시도해보세요.</p>
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                          {metaAdsResults.items.map((item, index) => (
+                            <div key={index} className="relative group border border-gray-200 rounded-lg overflow-hidden bg-gray-50">
+                              {item.type === 'image' ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img
+                                  src={item.url}
+                                  alt={`Ad ${index + 1}`}
+                                  className="w-full h-48 object-cover"
+                                  loading="lazy"
+                                  onError={(e) => {
+                                    (e.target as HTMLImageElement).src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="%23ccc"%3E%3Cpath d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/%3E%3C/svg%3E';
+                                  }}
+                                />
+                              ) : (
+                                <video
+                                  src={item.url}
+                                  className="w-full h-48 object-cover"
+                                  controls
+                                  preload="metadata"
+                                />
+                              )}
+                              <div className="absolute top-2 right-2">
+                                <span className={`text-xs px-2 py-1 rounded-full ${
+                                  item.type === 'image' ? 'bg-blue-500 text-white' : 'bg-purple-500 text-white'
+                                }`}>
+                                  {item.type === 'image' ? '이미지' : '영상'}
+                                </span>
+                              </div>
+                              <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-30 transition-opacity flex items-center justify-center opacity-0 group-hover:opacity-100">
+                                <a
+                                  href={item.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="px-3 py-1 bg-white text-gray-800 rounded-lg text-sm font-medium hover:bg-gray-100"
+                                >
+                                  원본 보기
+                                </a>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* 검색 전 안내 */}
+                  {!metaAdsResults && !metaAdsLoading && !metaAdsError && (
+                    <div className="text-center py-12 text-gray-500">
+                      <svg className="mx-auto h-12 w-12 text-gray-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                      </svg>
+                      <p>검색어를 입력하고 검색 버튼을 클릭하세요.</p>
+                      <p className="text-xs mt-2 text-gray-400">예: 브랜드명, 제품명, 카테고리 등</p>
                     </div>
                   )}
                 </>

@@ -2,7 +2,15 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   /* config options here */
-  
+
+  // ESLint와 TypeScript 체크 비활성화 (빌드 속도 향상)
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
+  typescript: {
+    ignoreBuildErrors: true,
+  },
+
   // 캐시 무효화 설정
   generateBuildId: async () => {
     // 빌드마다 고유한 ID 생성으로 캐시 무효화

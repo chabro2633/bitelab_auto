@@ -9,12 +9,14 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@sparticuz/chromium": "^143.0.0",
     "@types/bcryptjs": "^2.4.6",
     "@vercel/kv": "^3.0.0",
     "bcryptjs": "^3.0.2",
     "next": "^15.5.7",
-    "react": "19.1.0",
-    "react-dom": "19.1.0"
+    "puppeteer-core": "^24.33.0",
+    "react": "^19.1.2",
+    "react-dom": "^19.1.2"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",

@@ -1,0 +1,7 @@
+{
+  "functions": {
+    "src/app/api/cafe24/route.ts": {
+      "maxDuration": 60
+    }
+  }
+}
