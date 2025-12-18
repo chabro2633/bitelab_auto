@@ -148,6 +148,11 @@ def upload_to_google_sheets(df, sheet_name):
     """
     구글 시트에 데이터를 업로드합니다.
     기존 데이터와 비교하여 더 많은 데이터가 있을 때만 교체합니다.
+
+    버그 수정: 여러 날짜를 처리할 때 인덱스 불일치로 인한 데이터 손실 방지
+    - 모든 교체 대상 날짜를 먼저 파악
+    - 해당 날짜들의 기존 데이터를 한 번에 삭제 (뒤에서부터)
+    - 새 데이터를 한 번에 추가
     """
     try:
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
@@ -179,14 +184,18 @@ def upload_to_google_sheets(df, sheet_name):
         # 새 데이터의 날짜들
         new_dates = df['date'].unique()
 
+        # 1단계: 각 날짜별로 교체 여부 결정
+        dates_to_replace = []  # 교체할 날짜 목록
+        dates_to_add = []  # 새로 추가할 날짜 목록
+
         for date in new_dates:
             existing_date_data = existing_df[existing_df['date'] == date]
             new_date_data = df[df['date'] == date]
 
             if existing_date_data.empty:
-                # 해당 날짜의 데이터가 없으면 새로 추가
-                sheet.append_rows(new_date_data.values.tolist(), value_input_option='RAW')
-                logger.info(f"✅ {sheet_name} 시트에 {date} 날짜 데이터 새로 추가 완료")
+                # 해당 날짜의 데이터가 없으면 새로 추가 목록에 추가
+                dates_to_add.append(date)
+                logger.info(f"📝 {sheet_name} 시트에 {date} 날짜 데이터 추가 예정")
             else:
                 # 데이터 비교
                 existing_count = len(existing_date_data)
@@ -204,9 +213,6 @@ def upload_to_google_sheets(df, sheet_name):
                 else:
                     # 2. 원가, 판매량, 결제금액 비교 (같은 행 수일 때)
                     try:
-                        # 비교를 위해 키 컬럼으로 매칭 (판매처, 제품명, 옵션명)
-                        key_cols = ['판매처', '제품명', '옵션명']
-
                         for _, new_row in new_date_data.iterrows():
                             # 기존 데이터에서 같은 항목 찾기
                             mask = (existing_date_data['판매처'] == new_row['판매처']) & \
@@ -253,24 +259,48 @@ def upload_to_google_sheets(df, sheet_name):
                         logger.warning(f"⚠️ 데이터 비교 중 오류: {e}")
 
                 if should_replace:
-                    logger.info(f"🔄 {sheet_name} 시트의 {date} 날짜 데이터 교체 사유: {replace_reason}")
-
-                    # 기존 데이터 삭제
-                    existing_indices = existing_df[existing_df['date'] == date].index.tolist()
-                    sheet_row_numbers = [idx + 2 for idx in existing_indices]  # +2는 헤더와 0-based 인덱스 때문
-
-                    # 기존 데이터 삭제 (뒤에서부터 삭제하여 인덱스 변화 방지)
-                    if sheet_row_numbers:
-                        for row_num in sorted(sheet_row_numbers, reverse=True):
-                            sheet.delete_rows(row_num)
-
-                    # 새 데이터 추가
-                    if len(new_date_data) > 0:
-                        sheet.append_rows(new_date_data.values.tolist(), value_input_option='RAW')
-                    logger.info(f"✅ {sheet_name} 시트의 {date} 날짜 데이터 교체 완료")
+                    dates_to_replace.append((date, replace_reason))
+                    logger.info(f"🔄 {sheet_name} 시트의 {date} 날짜 데이터 교체 예정: {replace_reason}")
                 else:
                     logger.info(f"ℹ️ {sheet_name} 시트의 {date} 날짜 데이터 변경 없음. 기존 데이터 유지.")
-                    
+
+        # 2단계: 교체할 날짜들의 기존 데이터를 한 번에 삭제 (인덱스 불일치 방지)
+        if dates_to_replace:
+            # 삭제할 모든 행 번호 수집
+            all_rows_to_delete = []
+            for date, _ in dates_to_replace:
+                existing_indices = existing_df[existing_df['date'] == date].index.tolist()
+                sheet_row_numbers = [idx + 2 for idx in existing_indices]  # +2는 헤더와 0-based 인덱스 때문
+                all_rows_to_delete.extend(sheet_row_numbers)
+
+            # 뒤에서부터 삭제하여 인덱스 변화 방지
+            if all_rows_to_delete:
+                logger.info(f"🗑️ {sheet_name} 시트에서 {len(all_rows_to_delete)}개 행 삭제 중...")
+                for row_num in sorted(all_rows_to_delete, reverse=True):
+                    sheet.delete_rows(row_num)
+                logger.info(f"✅ {sheet_name} 시트에서 기존 데이터 삭제 완료")
+
+        # 3단계: 새 데이터 추가 (교체 대상 + 신규 추가 대상)
+        dates_to_write = [date for date, _ in dates_to_replace] + dates_to_add
+
+        if dates_to_write:
+            # 추가할 데이터 수집
+            rows_to_add = []
+            for date in dates_to_write:
+                new_date_data = df[df['date'] == date]
+                rows_to_add.extend(new_date_data.values.tolist())
+
+            if rows_to_add:
+                logger.info(f"📤 {sheet_name} 시트에 {len(rows_to_add)}개 행 추가 중...")
+                sheet.append_rows(rows_to_add, value_input_option='RAW')
+                logger.info(f"✅ {sheet_name} 시트에 데이터 추가 완료")
+
+        # 결과 요약
+        if dates_to_replace or dates_to_add:
+            logger.info(f"📋 {sheet_name} 시트 업데이트 완료 - 교체: {len(dates_to_replace)}개 날짜, 신규: {len(dates_to_add)}개 날짜")
+        else:
+            logger.info(f"ℹ️ {sheet_name} 시트 변경 사항 없음")
+
     except Exception as e:
         logger.error(f"❌ Google Sheets 업로드 중 오류 발생: {e}")
 
