@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-Meta Ads Library 스크래핑 스크립트
+Meta Ad Library API 스크래핑 스크립트
+- Meta Marketing API 사용 (스크래핑 대신 공식 API)
 - GitHub Actions에서 실행
 - 결과를 Vercel KV에 저장
 """
@@ -14,7 +15,6 @@ import urllib.error
 import argparse
 import logging
 from datetime import datetime, timezone, timedelta
-from playwright.sync_api import sync_playwright
 
 # 로깅 설정
 logging.basicConfig(
@@ -27,6 +27,12 @@ logger = logging.getLogger(__name__)
 # 환경 변수
 VERCEL_KV_URL = os.getenv("KV_REST_API_URL")
 VERCEL_KV_TOKEN = os.getenv("KV_REST_API_TOKEN")
+META_ACCESS_TOKEN = os.getenv("META_ACCESS_TOKEN")
+
+# Meta Ad Library API 설정
+META_API_VERSION = "v21.0"
+META_API_BASE_URL = f"https://graph.facebook.com/{META_API_VERSION}"
+
 
 def save_to_vercel_kv(key: str, data: dict, ttl: int = 3600):
     """Vercel KV에 데이터 저장 (TTL: 1시간)"""
@@ -35,11 +41,15 @@ def save_to_vercel_kv(key: str, data: dict, ttl: int = 3600):
         return False
 
     try:
+        # Vercel KV REST API 형식으로 수정
         url = f"{VERCEL_KV_URL}/set/{key}"
         payload = json.dumps(data).encode('utf-8')
 
+        # EX 옵션을 URL에 포함
+        url_with_ttl = f"{url}?ex={ttl}"
+
         req = urllib.request.Request(
-            url,
+            url_with_ttl,
             data=payload,
             headers={
                 'Authorization': f'Bearer {VERCEL_KV_TOKEN}',
@@ -47,9 +57,6 @@ def save_to_vercel_kv(key: str, data: dict, ttl: int = 3600):
             },
             method='POST'
         )
-
-        # TTL 설정
-        req.add_header('ex', str(ttl))
 
         with urllib.request.urlopen(req, timeout=30) as response:
             if response.status == 200:
@@ -63,136 +70,158 @@ def save_to_vercel_kv(key: str, data: dict, ttl: int = 3600):
         return False
 
 
-def scrape_meta_ads(search_query: str, max_scroll: int = 15, scroll_pause: float = 2.0):
-    """Meta Ads Library에서 광고 미디어 수집"""
+def fetch_meta_ads(search_query: str, access_token: str, limit: int = 100, country: str = "KR"):
+    """
+    Meta Ad Library API를 사용하여 광고 데이터 조회
+
+    API 문서: https://developers.facebook.com/docs/marketing-api/reference/ads_archive/
+    """
     logger.info(f"🔍 검색어: {search_query}")
+    logger.info(f"🌍 국가: {country}")
 
-    media_items = []
+    all_ads = []
+    next_page_url = None
+    page_count = 0
+    max_pages = 10  # 최대 페이지 수 제한
 
-    with sync_playwright() as p:
-        browser = p.chromium.launch(
-            headless=True,
-            args=['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
-        )
+    # 기본 API 파라미터
+    base_params = {
+        'access_token': access_token,
+        'search_terms': search_query,
+        'ad_reached_countries': country,
+        'ad_active_status': 'ACTIVE',
+        'ad_type': 'ALL',
+        'fields': ','.join([
+            'id',
+            'ad_creation_time',
+            'ad_creative_bodies',
+            'ad_creative_link_captions',
+            'ad_creative_link_descriptions',
+            'ad_creative_link_titles',
+            'ad_delivery_start_time',
+            'ad_snapshot_url',
+            'bylines',
+            'currency',
+            'languages',
+            'page_id',
+            'page_name',
+            'publisher_platforms',
+            'spend',
+            'impressions'
+        ]),
+        'limit': str(limit)
+    }
 
-        context = browser.new_context(
-            user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            viewport={'width': 1920, 'height': 1080}
-        )
+    # 첫 번째 요청 URL 구성
+    query_string = urllib.parse.urlencode(base_params)
+    url = f"{META_API_BASE_URL}/ads_archive?{query_string}"
 
-        page = context.new_page()
+    while url and page_count < max_pages:
+        page_count += 1
+        logger.info(f"📄 페이지 {page_count} 조회 중...")
 
-        # Meta Ads Library URL
-        encoded_query = urllib.parse.quote(search_query)
-        url = f"https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=KR&is_targeted_country=false&media_type=all&q={encoded_query}&search_type=keyword_unordered"
+        try:
+            req = urllib.request.Request(url, method='GET')
+            req.add_header('User-Agent', 'Mozilla/5.0')
 
-        logger.info(f"📄 페이지 로딩: {url}")
-        page.goto(url, wait_until='networkidle', timeout=60000)
-        page.wait_for_timeout(3000)
+            with urllib.request.urlopen(req, timeout=60) as response:
+                data = json.loads(response.read().decode('utf-8'))
 
-        # 스크롤 다운
-        logger.info(f"📜 스크롤 시작 (최대 {max_scroll}회)...")
-        scroll_count = 0
-        prev_height = 0
+                ads = data.get('data', [])
+                all_ads.extend(ads)
+                logger.info(f"   → {len(ads)}개 광고 수집 (총 {len(all_ads)}개)")
 
-        for i in range(max_scroll):
-            prev_height = page.evaluate("document.body.scrollHeight")
-            page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-            page.wait_for_timeout(int(scroll_pause * 1000))
+                # 다음 페이지 URL
+                paging = data.get('paging', {})
+                url = paging.get('next')
 
-            new_height = page.evaluate("document.body.scrollHeight")
-            scroll_count = i + 1
+                if not ads:
+                    logger.info("📭 더 이상 광고가 없습니다.")
+                    break
 
-            if new_height == prev_height:
-                logger.info(f"📜 스크롤 완료 (더 이상 콘텐츠 없음): {scroll_count}회")
-                break
+        except urllib.error.HTTPError as e:
+            error_body = e.read().decode('utf-8')
+            logger.error(f"❌ API 오류 (HTTP {e.code}): {error_body}")
 
-        logger.info(f"📜 스크롤 완료: {scroll_count}회")
-
-        # 미디어 수집
-        logger.info("🖼️ 미디어 수집 중...")
-
-        seen_urls = set()
-
-        # 이미지 수집
-        images = page.query_selector_all('img')
-        for img in images:
+            # 에러 상세 분석
             try:
-                src = img.get_attribute('src')
-                if not src:
-                    continue
+                error_data = json.loads(error_body)
+                error_msg = error_data.get('error', {}).get('message', '')
+                error_code = error_data.get('error', {}).get('code', '')
+                logger.error(f"   → 에러 코드: {error_code}")
+                logger.error(f"   → 에러 메시지: {error_msg}")
+            except:
+                pass
+            break
 
-                # 필터링
-                skip_keywords = ['safe_image.php', 'profilepic', 'logo', 'fbcdn-profile', 'emoji', 'rsrc.php', 'static']
-                if any(kw in src for kw in skip_keywords):
-                    continue
+        except Exception as e:
+            logger.error(f"❌ 요청 오류: {e}")
+            break
 
-                # 작은 이미지 제외
-                width = img.get_attribute('width')
-                if width and int(width) < 100:
-                    continue
+    logger.info(f"✅ 총 {len(all_ads)}개 광고 수집 완료 ({page_count}페이지)")
+    return all_ads, page_count
 
-                if src not in seen_urls:
-                    seen_urls.add(src)
-                    box = img.bounding_box()
-                    media_items.append({
-                        'url': src,
-                        'type': 'image',
-                        'width': int(box['width']) if box else None,
-                        'height': int(box['height']) if box else None
-                    })
-            except Exception as e:
-                logger.debug(f"이미지 처리 오류: {e}")
 
-        # 비디오 수집
-        videos = page.query_selector_all('video')
-        for video in videos:
-            try:
-                src = video.get_attribute('src')
-                if src and src not in seen_urls:
-                    seen_urls.add(src)
-                    media_items.append({
-                        'url': src,
-                        'type': 'video'
-                    })
+def process_ads_data(ads: list):
+    """광고 데이터를 가공하여 미디어 URL 등 추출"""
+    processed_items = []
 
-                # source 태그 확인
-                sources = video.query_selector_all('source')
-                for source in sources:
-                    src = source.get_attribute('src')
-                    if src and src not in seen_urls:
-                        seen_urls.add(src)
-                        media_items.append({
-                            'url': src,
-                            'type': 'video'
-                        })
-            except Exception as e:
-                logger.debug(f"비디오 처리 오류: {e}")
+    for ad in ads:
+        item = {
+            'id': ad.get('id'),
+            'page_name': ad.get('page_name'),
+            'page_id': ad.get('page_id'),
+            'ad_snapshot_url': ad.get('ad_snapshot_url'),
+            'ad_creation_time': ad.get('ad_creation_time'),
+            'ad_delivery_start_time': ad.get('ad_delivery_start_time'),
+            'platforms': ad.get('publisher_platforms', []),
+            'languages': ad.get('languages', []),
+            'spend': ad.get('spend'),
+            'impressions': ad.get('impressions'),
+            'creative': {
+                'bodies': ad.get('ad_creative_bodies', []),
+                'link_titles': ad.get('ad_creative_link_titles', []),
+                'link_descriptions': ad.get('ad_creative_link_descriptions', []),
+                'link_captions': ad.get('ad_creative_link_captions', [])
+            },
+            'bylines': ad.get('bylines')
+        }
+        processed_items.append(item)
 
-        browser.close()
-
-    logger.info(f"✅ 미디어 수집 완료: {len(media_items)}개")
-    return media_items, scroll_count
+    return processed_items
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Meta Ads Library 스크래핑')
+    parser = argparse.ArgumentParser(description='Meta Ad Library API 조회')
     parser.add_argument('--query', '-q', type=str, required=True, help='검색어')
     parser.add_argument('--request-id', '-r', type=str, required=True, help='요청 ID (결과 저장용)')
-    parser.add_argument('--max-scroll', type=int, default=15, help='최대 스크롤 횟수')
+    parser.add_argument('--limit', type=int, default=100, help='페이지당 조회 수 (기본: 100)')
+    parser.add_argument('--country', type=str, default='KR', help='국가 코드 (기본: KR)')
     args = parser.parse_args()
 
-    logger.info("🚀 Meta Ads 스크래핑 시작")
+    # Access Token 확인
+    access_token = META_ACCESS_TOKEN
+    if not access_token:
+        logger.error("❌ META_ACCESS_TOKEN 환경변수가 설정되지 않았습니다.")
+        sys.exit(1)
+
+    logger.info("🚀 Meta Ad Library API 조회 시작")
     logger.info(f"📋 요청 ID: {args.request_id}")
 
     KST = timezone(timedelta(hours=9))
     start_time = datetime.now(KST)
 
     try:
-        media_items, scroll_count = scrape_meta_ads(
+        # API로 광고 데이터 조회
+        ads, page_count = fetch_meta_ads(
             search_query=args.query,
-            max_scroll=args.max_scroll
+            access_token=access_token,
+            limit=args.limit,
+            country=args.country
         )
+
+        # 데이터 가공
+        processed_items = process_ads_data(ads)
 
         end_time = datetime.now(KST)
 
@@ -200,9 +229,10 @@ def main():
             'success': True,
             'requestId': args.request_id,
             'searchQuery': args.query,
-            'totalItems': len(media_items),
-            'scrollCount': scroll_count,
-            'items': media_items,
+            'country': args.country,
+            'totalItems': len(processed_items),
+            'pageCount': page_count,
+            'items': processed_items,
             'startTime': start_time.isoformat(),
             'endTime': end_time.isoformat(),
             'duration': (end_time - start_time).total_seconds()
@@ -212,19 +242,24 @@ def main():
         kv_key = f"meta-ads:{args.request_id}"
         save_to_vercel_kv(kv_key, result, ttl=3600)  # 1시간 TTL
 
-        # 결과 출력 (GitHub Actions 로그용)
+        # 결과 출력
         logger.info("=" * 50)
-        logger.info(f"✅ 스크래핑 완료!")
+        logger.info(f"✅ 조회 완료!")
         logger.info(f"📊 검색어: {args.query}")
-        logger.info(f"🖼️ 수집된 미디어: {len(media_items)}개")
+        logger.info(f"📢 수집된 광고: {len(processed_items)}개")
         logger.info(f"⏱️ 소요 시간: {result['duration']:.1f}초")
         logger.info("=" * 50)
 
-        # JSON 결과 출력 (디버깅용)
-        print(json.dumps(result, ensure_ascii=False, indent=2))
+        # JSON 결과 파일 저장 (GitHub Actions artifact용)
+        result_file = f"meta_ads_result_{args.request_id}.json"
+        with open(result_file, 'w', encoding='utf-8') as f:
+            json.dump(result, ensure_ascii=False, indent=2, fp=f)
+        logger.info(f"📁 결과 파일 저장: {result_file}")
 
     except Exception as e:
-        logger.error(f"❌ 스크래핑 실패: {e}")
+        logger.error(f"❌ 조회 실패: {e}")
+        import traceback
+        traceback.print_exc()
 
         error_result = {
             'success': False,
