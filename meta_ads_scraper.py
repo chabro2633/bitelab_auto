@@ -84,11 +84,12 @@ def fetch_meta_ads(search_query: str, access_token: str, limit: int = 100, count
     page_count = 0
     max_pages = 10  # 최대 페이지 수 제한
 
-    # 기본 API 파라미터
+    # 기본 API 파라미터 (Ad Library API 형식)
+    # ad_reached_countries는 JSON 배열 형식으로 전달
     base_params = {
         'access_token': access_token,
         'search_terms': search_query,
-        'ad_reached_countries': country,
+        'ad_reached_countries': f'["{country}"]',
         'ad_active_status': 'ACTIVE',
         'ad_type': 'ALL',
         'fields': ','.join([
@@ -101,19 +102,16 @@ def fetch_meta_ads(search_query: str, access_token: str, limit: int = 100, count
             'ad_delivery_start_time',
             'ad_snapshot_url',
             'bylines',
-            'currency',
             'languages',
             'page_id',
             'page_name',
-            'publisher_platforms',
-            'spend',
-            'impressions'
+            'publisher_platforms'
         ]),
         'limit': str(limit)
     }
 
     # 첫 번째 요청 URL 구성
-    query_string = urllib.parse.urlencode(base_params)
+    query_string = urllib.parse.urlencode(base_params, safe='[]"')
     url = f"{META_API_BASE_URL}/ads_archive?{query_string}"
 
     while url and page_count < max_pages:
