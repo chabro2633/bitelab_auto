@@ -207,7 +207,7 @@ export default function AdminDashboard() {
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const availableBrands = ['바르너', '릴리이브', '보호리', '먼슬리픽', '색동서울'];
-  const availableAdsBrands = ['바르너', '릴리이브'];  // 광고용 브랜드
+  const availableAdsBrands = ['바르너', '색동서울', '보호리', '먼슬리픽', '릴리이브'];  // 광고용 브랜드
 
   // 세션 확인
   useEffect(() => {
@@ -2047,7 +2047,7 @@ export default function AdminDashboard() {
                       <h3 className="text-sm font-medium text-orange-800 mb-2">스크립트 정보</h3>
                       <ul className="text-sm text-orange-700 space-y-1">
                         <li>• <strong>기능:</strong> Cigro 웹사이트에서 어제 날짜의 광고 데이터를 스크래핑</li>
-                        <li>• <strong>브랜드:</strong> 바르너, 릴리이브</li>
+                        <li>• <strong>브랜드:</strong> 바르너, 색동서울, 보호리, 먼슬리픽, 릴리이브</li>
                         <li>• <strong>저장소:</strong> Google Sheets (브랜드명_광고 시트)</li>
                         <li>• <strong>중복 처리:</strong> 같은 날짜 데이터가 있으면 내용을 비교하여 업데이트</li>
                       </ul>
@@ -2088,7 +2088,7 @@ export default function AdminDashboard() {
                         ))}
                       </div>
                       <p className="mt-2 text-xs text-gray-500">
-                        광고 데이터는 바르너, 릴리이브 브랜드만 지원합니다.
+                        비워두면 어제 날짜로 자동 실행됩니다.
                       </p>
                     </div>
 

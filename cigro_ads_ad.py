@@ -22,8 +22,11 @@ BRANDS = ["바르너", "색동서울", "보호리", "먼슬리픽", "릴리이�
 
 # 날짜 모드 설정
 USE_DATE_RANGE = True  # False: 어제 하루만, True: 날짜 범위 사용
-DATE_RANGE_START = "2025-12-30"  # USE_DATE_RANGE=True 일 때만 사용
-DATE_RANGE_END = "2026-01-04"    # USE_DATE_RANGE=True 일 때만 사용
+DATE_RANGE_START = "2025-12-31"  # USE_DATE_RANGE=True 일 때만 사용
+DATE_RANGE_END = "2025-12-31"    # USE_DATE_RANGE=True 일 때만 사용
+
+# 브라우저 모드 설정
+HEADLESS = True  # True: 백그라운드 실행, False: 브라우저 창 표시
 
 
 def upload_to_google_sheets(df, sheet_name, selected_date):
@@ -144,9 +147,6 @@ def upload_to_google_sheets(df, sheet_name, selected_date):
         sheet.append_rows(df.values.tolist(), value_input_option="RAW")
         print(f"✅ '{sheet_name}' 시트의 '{selected_date}' 데이터 {new_count}행으로 교체(overwrite) 완료")
 
-        # 아주 빡빡한 환경이면 날짜마다 살짝 쉬어도 됨 (선택)
-        # time.sleep(1)
-
     else:
         print(
             f"⛔ 기존 데이터({existing_count}행)가 새 데이터({new_count}행)보다 크거나 같음 → 업데이트 하지 않음"
@@ -249,7 +249,7 @@ def main():
     print("🎯 수집 대상 날짜들:", target_dates)
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=False)
+        browser = p.chromium.launch(headless=HEADLESS)
 
         # 로그인/세션
         if os.path.exists("auth.json"):
@@ -280,11 +280,12 @@ def main():
         for selected_date in target_dates:
             for brand in BRANDS:
                 print(f"\n==============================")
-                print(f"🔍 {selected_date} / {brand} 데이터 추출 중...")
+                print(f"🔍 {selected_date} / {brand} 광고 소재 데이터 추출 중...")
                 print(f"==============================")
 
+                # group_by=ad 로 변경 (광고 소재 단위)
                 target_url = (
-                    "https://app.cigro.io/?menu=analysis&tab=ad&group_by=campaign"
+                    "https://app.cigro.io/?menu=analysis&tab=ad&group_by=ad"
                     f"&brand_name={brand}&start_date={selected_date}&end_date={selected_date}"
                 )
 
@@ -294,7 +295,8 @@ def main():
 
                 df = extract_all_pages_data(page, selected_date)
 
-                sheet_name = f"{brand}_광고"
+                # 시트 이름: {브랜드}_광고_소재
+                sheet_name = f"{brand}_광고_소재"
                 upload_to_google_sheets(df, sheet_name, selected_date)
 
                 page.close()
