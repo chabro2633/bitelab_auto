@@ -21,7 +21,7 @@ PASSWORD = "qkfmsj123"           # 👉 비밀번호
 BRANDS = ["바르너", "색동서울", "보호리", "먼슬리픽", "릴리이브"]  # 브랜드 이름 리스트
 
 # 날짜 모드 설정
-USE_DATE_RANGE = True  # False: 어제 하루만, True: 날짜 범위 사용
+USE_DATE_RANGE = False  # False: 어제 하루만, True: 날짜 범위 사용
 DATE_RANGE_START = "2025-12-30"  # USE_DATE_RANGE=True 일 때만 사용
 DATE_RANGE_END = "2026-01-04"    # USE_DATE_RANGE=True 일 때만 사용
 
@@ -249,7 +249,7 @@ def main():
     print("🎯 수집 대상 날짜들:", target_dates)
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=False)
+        browser = p.chromium.launch(headless=True)
 
         # 로그인/세션
         if os.path.exists("auth.json"):
