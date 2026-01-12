@@ -121,6 +121,8 @@ export default function AdminDashboard() {
     orderStatus: Array<{ status: string; label: string; count: number }>;
     topProducts: Array<{ name: string; quantity: number; sales: number }>;
     hourlySales: Array<{ hour: number; sales: number; orders: number }>;
+    yesterdayHourlySales?: Array<{ hour: number; sales: number; orders: number }>;
+    yesterdayStats?: { totalSales: number; totalOrders: number };
     recentOrders: Array<{
       orderId: string;
       orderDate: string;
@@ -2292,6 +2294,22 @@ export default function AdminDashboard() {
                           <div className="text-xs text-green-600 mt-1">
                             {realtimeSales.stats.validOrders || 0}건 (입금확인 이상)
                           </div>
+                          {realtimeSales.yesterdayStats && (
+                            <div className="text-xs mt-2 pt-2 border-t border-green-200">
+                              <span className="text-gray-500">어제: {realtimeSales.yesterdayStats.totalSales.toLocaleString()}원</span>
+                              {(() => {
+                                const today = realtimeSales.stats.totalSales;
+                                const yesterday = realtimeSales.yesterdayStats?.totalSales || 0;
+                                if (yesterday === 0) return today > 0 ? <span className="ml-2 text-green-600 font-medium">▲ NEW</span> : null;
+                                const changePercent = Math.round(((today - yesterday) / yesterday) * 100);
+                                return (
+                                  <span className={`ml-2 font-medium ${changePercent >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                                    {changePercent >= 0 ? '▲' : '▼'} {Math.abs(changePercent)}%
+                                  </span>
+                                );
+                              })()}
+                            </div>
+                          )}
                         </div>
                         {/* 입금대기 */}
                         <div className="bg-gradient-to-br from-yellow-50 to-yellow-100 border border-yellow-200 rounded-lg p-4">
@@ -2322,6 +2340,22 @@ export default function AdminDashboard() {
                           <div className="text-2xl font-bold text-blue-800">
                             {realtimeSales.stats.totalOrders}건
                           </div>
+                          {realtimeSales.yesterdayStats && (
+                            <div className="text-xs mt-1 text-gray-500">
+                              어제: {realtimeSales.yesterdayStats.totalOrders}건
+                              {(() => {
+                                const today = realtimeSales.stats.totalOrders;
+                                const yesterday = realtimeSales.yesterdayStats?.totalOrders || 0;
+                                if (yesterday === 0) return today > 0 ? <span className="ml-1 text-blue-600">▲</span> : null;
+                                const changePercent = Math.round(((today - yesterday) / yesterday) * 100);
+                                return (
+                                  <span className={`ml-1 ${changePercent >= 0 ? 'text-blue-600' : 'text-red-500'}`}>
+                                    {changePercent >= 0 ? '▲' : '▼'}{Math.abs(changePercent)}%
+                                  </span>
+                                );
+                              })()}
+                            </div>
+                          )}
                         </div>
                         <div className="bg-gradient-to-br from-purple-50 to-purple-100 border border-purple-200 rounded-lg p-4">
                           <div className="text-sm text-purple-600 font-medium">총 상품 수</div>
@@ -2358,31 +2392,86 @@ export default function AdminDashboard() {
                       {/* 시간별 매출 현황 */}
                       {realtimeSales.hourlySales && realtimeSales.hourlySales.length > 0 && (
                         <div className="bg-white border border-gray-200 rounded-lg p-4">
-                          <h3 className="text-sm font-medium text-gray-900 mb-4">시간별 매출 현황</h3>
-                          <div className="space-y-2">
+                          <h3 className="text-sm font-medium text-gray-900 mb-4">
+                            시간별 매출 현황
+                            {realtimeSales.yesterdayHourlySales && (
+                              <span className="ml-2 text-xs font-normal text-gray-500">(어제 대비)</span>
+                            )}
+                          </h3>
+                          {/* 헤더 */}
+                          <div className="flex items-center gap-2 mb-2 text-xs text-gray-500 border-b pb-2">
+                            <div className="w-12 text-right">시간</div>
+                            <div className="flex-1">오늘</div>
+                            <div className="w-20 text-right">오늘 매출</div>
+                            {realtimeSales.yesterdayHourlySales && (
+                              <>
+                                <div className="w-20 text-right">어제 매출</div>
+                                <div className="w-16 text-right">증감</div>
+                              </>
+                            )}
+                            <div className="w-10 text-right">주문</div>
+                          </div>
+                          <div className="space-y-1">
                             {/* 매출 바 차트 */}
                             {(() => {
                               const maxSales = Math.max(...realtimeSales.hourlySales.map(h => h.sales), 1);
                               const currentHour = new Date().getHours();
+                              const yesterdayMap = new Map(
+                                realtimeSales.yesterdayHourlySales?.map(h => [h.hour, h]) || []
+                              );
                               return realtimeSales.hourlySales.map((hourData) => {
                                 const percentage = (hourData.sales / maxSales) * 100;
                                 const isCurrentHour = hourData.hour === currentHour;
+                                const isFutureHour = hourData.hour > currentHour;
+                                const yesterdayData = yesterdayMap.get(hourData.hour);
+                                const yesterdaySales = yesterdayData?.sales || 0;
+
+                                // 증감률 계산
+                                let changePercent = 0;
+                                let changeType: 'up' | 'down' | 'same' = 'same';
+                                if (yesterdaySales > 0 && hourData.sales > 0) {
+                                  changePercent = Math.round(((hourData.sales - yesterdaySales) / yesterdaySales) * 100);
+                                  changeType = changePercent > 0 ? 'up' : changePercent < 0 ? 'down' : 'same';
+                                } else if (hourData.sales > 0 && yesterdaySales === 0) {
+                                  changeType = 'up';
+                                } else if (hourData.sales === 0 && yesterdaySales > 0) {
+                                  changeType = 'down';
+                                }
+
                                 return (
-                                  <div key={hourData.hour} className="flex items-center gap-2">
+                                  <div key={hourData.hour} className={`flex items-center gap-2 py-1 ${isFutureHour ? 'opacity-40' : ''}`}>
                                     <div className={`w-12 text-xs text-right ${isCurrentHour ? 'font-bold text-blue-600' : 'text-gray-500'}`}>
                                       {String(hourData.hour).padStart(2, '0')}시
                                     </div>
-                                    <div className="flex-1 h-6 bg-gray-100 rounded-sm overflow-hidden">
+                                    <div className="flex-1 h-5 bg-gray-100 rounded-sm overflow-hidden">
                                       <div
                                         className={`h-full transition-all duration-300 ${isCurrentHour ? 'bg-blue-500' : 'bg-green-400'}`}
                                         style={{ width: `${percentage}%` }}
                                       />
                                     </div>
-                                    <div className={`w-24 text-xs text-right ${isCurrentHour ? 'font-bold text-blue-600' : 'text-gray-700'}`}>
-                                      {hourData.sales > 0 ? `${hourData.sales.toLocaleString()}원` : '-'}
+                                    <div className={`w-20 text-xs text-right ${isCurrentHour ? 'font-bold text-blue-600' : 'text-gray-700'}`}>
+                                      {hourData.sales > 0 ? `${hourData.sales.toLocaleString()}` : '-'}
                                     </div>
-                                    <div className={`w-12 text-xs text-right ${isCurrentHour ? 'font-bold text-blue-600' : 'text-gray-500'}`}>
-                                      {hourData.orders > 0 ? `${hourData.orders}건` : '-'}
+                                    {realtimeSales.yesterdayHourlySales && (
+                                      <>
+                                        <div className="w-20 text-xs text-right text-gray-400">
+                                          {yesterdaySales > 0 ? `${yesterdaySales.toLocaleString()}` : '-'}
+                                        </div>
+                                        <div className={`w-16 text-xs text-right font-medium ${
+                                          changeType === 'up' ? 'text-green-600' :
+                                          changeType === 'down' ? 'text-red-500' :
+                                          'text-gray-400'
+                                        }`}>
+                                          {isFutureHour ? '-' :
+                                           hourData.sales === 0 && yesterdaySales === 0 ? '-' :
+                                           changeType === 'up' ? `▲${changePercent > 0 ? changePercent + '%' : 'NEW'}` :
+                                           changeType === 'down' ? `▼${Math.abs(changePercent)}%` :
+                                           '-'}
+                                        </div>
+                                      </>
+                                    )}
+                                    <div className={`w-10 text-xs text-right ${isCurrentHour ? 'font-bold text-blue-600' : 'text-gray-500'}`}>
+                                      {hourData.orders > 0 ? `${hourData.orders}` : '-'}
                                     </div>
                                   </div>
                                 );

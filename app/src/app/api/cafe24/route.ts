@@ -93,6 +93,15 @@ function getTodayDateKST(): string {
   return kstDate.toISOString().split('T')[0];
 }
 
+// 어제 날짜 구하기 (KST 기준)
+function getYesterdayDateKST(): string {
+  const now = new Date();
+  const kstOffset = 9 * 60 * 60 * 1000;
+  const kstDate = new Date(now.getTime() + kstOffset);
+  kstDate.setDate(kstDate.getDate() - 1);
+  return kstDate.toISOString().split('T')[0];
+}
+
 // 단일 페이지 주문 가져오기
 async function fetchOrderPage(accessToken: string, startDate: string, endDate: string, offset: number, limit: number) {
   const apiUrl = `https://${CAFE24_MALL_ID}.cafe24api.com/api/v2/admin/orders`;
@@ -570,6 +579,27 @@ export async function GET(request: NextRequest) {
     // 시간별 매출 계산
     const hourlySales = calculateHourlySales(orders);
 
+    // 어제 데이터 조회 (오늘 날짜 조회인 경우에만)
+    let yesterdayHourlySales: Array<{ hour: number; sales: number; orders: number }> | undefined;
+    let yesterdayStats: { totalSales: number; totalOrders: number } | undefined;
+
+    const todayDate = getTodayDateKST();
+    if (startDate === todayDate && endDate === todayDate) {
+      const yesterdayDate = getYesterdayDateKST();
+      try {
+        const yesterdayOrdersData = await fetchOrders(accessToken, yesterdayDate, yesterdayDate);
+        const yesterdayOrders = yesterdayOrdersData.orders || [];
+        const yesterdayStatsCalc = calculateOrderStats(yesterdayOrders);
+        yesterdayHourlySales = calculateHourlySales(yesterdayOrders);
+        yesterdayStats = {
+          totalSales: yesterdayStatsCalc.totalAmount,
+          totalOrders: yesterdayStatsCalc.totalOrders,
+        };
+      } catch (error) {
+        console.error('Failed to fetch yesterday data:', error);
+      }
+    }
+
     // 주문 상태 라벨 변환
     const orderStatusWithLabels = Object.entries(stats.orderStatusCount).map(([status, count]) => ({
       status,
@@ -617,6 +647,8 @@ export async function GET(request: NextRequest) {
       dailySales,
       hourlySales,
       recentOrders,
+      yesterdayHourlySales,
+      yesterdayStats,
       lastUpdated: new Date().toISOString(),
     });
 
