@@ -120,6 +120,7 @@ export default function AdminDashboard() {
     };
     orderStatus: Array<{ status: string; label: string; count: number }>;
     topProducts: Array<{ name: string; quantity: number; sales: number }>;
+    yesterdayTopProducts?: Array<{ name: string; quantity: number; sales: number }>;
     hourlySales: Array<{ hour: number; sales: number; orders: number }>;
     yesterdayHourlySales?: Array<{ hour: number; sales: number; orders: number }>;
     yesterdayStats?: { totalSales: number; totalOrders: number };
@@ -2511,43 +2512,120 @@ export default function AdminDashboard() {
                         </div>
                       )}
 
-                      {/* 오늘의 TOP 5 상품 */}
-                      {realtimeSales.topProducts && realtimeSales.topProducts.length > 0 && (
-                        <div className="bg-white border border-gray-200 rounded-lg">
-                          <div className="px-4 py-3 border-b border-gray-200">
-                            <h3 className="text-sm font-medium text-gray-900">오늘의 TOP 5 상품</h3>
-                          </div>
-                          <div className="divide-y divide-gray-100">
-                            {realtimeSales.topProducts.map((product, index) => (
-                              <div key={product.name} className="px-4 py-3 hover:bg-gray-50 flex items-center justify-between">
-                                <div className="flex items-center gap-3">
-                                  <div className={`w-7 h-7 rounded-full flex items-center justify-center text-sm font-bold ${
-                                    index === 0 ? 'bg-yellow-400 text-yellow-900' :
-                                    index === 1 ? 'bg-gray-300 text-gray-700' :
-                                    index === 2 ? 'bg-orange-300 text-orange-800' :
-                                    'bg-gray-100 text-gray-600'
-                                  }`}>
-                                    {index + 1}
-                                  </div>
-                                  <div className="text-sm font-medium text-gray-900 truncate max-w-[200px]" title={product.name}>
-                                    {product.name}
+                      {/* 현재 시간까지 매출 비교 */}
+                      {realtimeSales.yesterdayHourlySales && (
+                        <div className="bg-gradient-to-br from-indigo-50 to-indigo-100 border border-indigo-200 rounded-lg p-4">
+                          <h3 className="text-sm font-medium text-indigo-800 mb-3">
+                            현재 시간까지 매출 비교 ({String(new Date().getHours()).padStart(2, '0')}시 기준)
+                          </h3>
+                          {(() => {
+                            const currentHour = new Date().getHours();
+                            const todayUntilNow = realtimeSales.hourlySales
+                              .filter(h => h.hour <= currentHour)
+                              .reduce((sum, h) => sum + h.sales, 0);
+                            const yesterdayUntilNow = realtimeSales.yesterdayHourlySales
+                              ?.filter(h => h.hour <= currentHour)
+                              .reduce((sum, h) => sum + h.sales, 0) || 0;
+                            const diff = todayUntilNow - yesterdayUntilNow;
+                            const changePercent = yesterdayUntilNow > 0
+                              ? Math.round((diff / yesterdayUntilNow) * 100)
+                              : todayUntilNow > 0 ? 100 : 0;
+
+                            return (
+                              <div className="grid grid-cols-3 gap-4 text-center">
+                                <div>
+                                  <div className="text-xs text-indigo-600">오늘</div>
+                                  <div className="text-lg font-bold text-indigo-800">
+                                    {todayUntilNow.toLocaleString()}원
                                   </div>
                                 </div>
-                                <div className="flex items-center gap-4 text-right">
-                                  <div>
-                                    <div className="text-xs text-gray-500">판매수량</div>
-                                    <div className="text-sm font-semibold text-blue-600">{product.quantity}개</div>
+                                <div>
+                                  <div className="text-xs text-gray-500">어제 같은 시간</div>
+                                  <div className="text-lg font-bold text-gray-600">
+                                    {yesterdayUntilNow.toLocaleString()}원
                                   </div>
-                                  <div>
-                                    <div className="text-xs text-gray-500">매출</div>
-                                    <div className="text-sm font-semibold text-green-600">{product.sales.toLocaleString()}원</div>
+                                </div>
+                                <div>
+                                  <div className="text-xs text-gray-500">차이</div>
+                                  <div className={`text-lg font-bold ${diff >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                                    {diff >= 0 ? '+' : ''}{diff.toLocaleString()}원
+                                    <span className="text-sm ml-1">
+                                      ({diff >= 0 ? '▲' : '▼'}{Math.abs(changePercent)}%)
+                                    </span>
                                   </div>
                                 </div>
                               </div>
-                            ))}
-                          </div>
+                            );
+                          })()}
                         </div>
                       )}
+
+                      {/* TOP 5 상품 - 오늘/어제 비교 */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {/* 오늘의 TOP 5 상품 */}
+                        {realtimeSales.topProducts && realtimeSales.topProducts.length > 0 && (
+                          <div className="bg-white border border-gray-200 rounded-lg">
+                            <div className="px-4 py-3 border-b border-gray-200 bg-green-50">
+                              <h3 className="text-sm font-medium text-green-800">오늘의 TOP 5 상품</h3>
+                            </div>
+                            <div className="divide-y divide-gray-100">
+                              {realtimeSales.topProducts.map((product, index) => (
+                                <div key={product.name} className="px-4 py-2 hover:bg-gray-50 flex items-center justify-between">
+                                  <div className="flex items-center gap-2">
+                                    <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
+                                      index === 0 ? 'bg-yellow-400 text-yellow-900' :
+                                      index === 1 ? 'bg-gray-300 text-gray-700' :
+                                      index === 2 ? 'bg-orange-300 text-orange-800' :
+                                      'bg-gray-100 text-gray-600'
+                                    }`}>
+                                      {index + 1}
+                                    </div>
+                                    <div className="text-xs font-medium text-gray-900 truncate max-w-[120px]" title={product.name}>
+                                      {product.name}
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center gap-3 text-right">
+                                    <div className="text-xs text-blue-600 font-semibold">{product.quantity}개</div>
+                                    <div className="text-xs text-green-600 font-semibold w-20">{product.sales.toLocaleString()}원</div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* 어제의 TOP 5 상품 */}
+                        {realtimeSales.yesterdayTopProducts && realtimeSales.yesterdayTopProducts.length > 0 && (
+                          <div className="bg-white border border-gray-200 rounded-lg">
+                            <div className="px-4 py-3 border-b border-gray-200 bg-gray-50">
+                              <h3 className="text-sm font-medium text-gray-700">어제의 TOP 5 상품</h3>
+                            </div>
+                            <div className="divide-y divide-gray-100">
+                              {realtimeSales.yesterdayTopProducts.map((product, index) => (
+                                <div key={product.name} className="px-4 py-2 hover:bg-gray-50 flex items-center justify-between">
+                                  <div className="flex items-center gap-2">
+                                    <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
+                                      index === 0 ? 'bg-yellow-200 text-yellow-800' :
+                                      index === 1 ? 'bg-gray-200 text-gray-600' :
+                                      index === 2 ? 'bg-orange-200 text-orange-700' :
+                                      'bg-gray-100 text-gray-500'
+                                    }`}>
+                                      {index + 1}
+                                    </div>
+                                    <div className="text-xs font-medium text-gray-700 truncate max-w-[120px]" title={product.name}>
+                                      {product.name}
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center gap-3 text-right">
+                                    <div className="text-xs text-gray-500 font-semibold">{product.quantity}개</div>
+                                    <div className="text-xs text-gray-500 font-semibold w-20">{product.sales.toLocaleString()}원</div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
 
                       {/* 최근 주문 목록 */}
                       {realtimeSales.recentOrders.length > 0 && (

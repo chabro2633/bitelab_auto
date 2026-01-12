@@ -583,6 +583,9 @@ export async function GET(request: NextRequest) {
     let yesterdayHourlySales: Array<{ hour: number; sales: number; orders: number }> | undefined;
     let yesterdayStats: { totalSales: number; totalOrders: number } | undefined;
 
+    // 어제 TOP5 상품
+    let yesterdayTopProducts: Array<{ name: string; quantity: number; sales: number }> | undefined;
+
     const todayDate = getTodayDateKST();
     if (startDate === todayDate && endDate === todayDate) {
       const yesterdayDate = getYesterdayDateKST();
@@ -591,6 +594,7 @@ export async function GET(request: NextRequest) {
         const yesterdayOrders = yesterdayOrdersData.orders || [];
         const yesterdayStatsCalc = calculateOrderStats(yesterdayOrders);
         yesterdayHourlySales = calculateHourlySales(yesterdayOrders);
+        yesterdayTopProducts = calculateTopProducts(yesterdayOrders, 5);
         yesterdayStats = {
           totalSales: yesterdayStatsCalc.totalAmount,
           totalOrders: yesterdayStatsCalc.totalOrders,
@@ -644,6 +648,7 @@ export async function GET(request: NextRequest) {
       orderStatus: orderStatusWithLabels,
       paymentMethods: stats.paymentMethodCount,
       topProducts,
+      yesterdayTopProducts,
       dailySales,
       hourlySales,
       recentOrders,
