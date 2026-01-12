@@ -4,7 +4,7 @@ import pandas as pd
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from playwright.sync_api import sync_playwright
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 # ==========================
 # 설정 영역
@@ -239,8 +239,10 @@ def build_target_dates():
         days = (end - start).days + 1
         return [(start + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(days)]
     else:
-        # 어제 하루
-        yesterday = datetime.now() - timedelta(1)
+        # 어제 하루 (KST 기준)
+        KST = timezone(timedelta(hours=9))
+        now_kst = datetime.now(KST)
+        yesterday = now_kst - timedelta(1)
         return [yesterday.strftime("%Y-%m-%d")]
 
 
