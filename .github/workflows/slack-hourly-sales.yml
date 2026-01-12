@@ -1,0 +1,34 @@
+name: Hourly Sales Slack Notification
+
+on:
+  # 매 시간 정각에 실행 (UTC 기준)
+  schedule:
+    - cron: '0 * * * *'
+
+  # 수동 실행 가능
+  workflow_dispatch:
+
+jobs:
+  send-slack-notification:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Send Slack notification
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        CAFE24_API_KEY: ${{ secrets.CAFE24_API_KEY }}
+      run: python slack_hourly_sales.py
+
+    - name: Log completion
+      if: success()
+      run: |
+        echo "Slack 알림 전송 완료"
+        echo "실행 시간: $(TZ='Asia/Seoul' date)"

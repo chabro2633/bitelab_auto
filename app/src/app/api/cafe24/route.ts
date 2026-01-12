@@ -515,10 +515,17 @@ function getAuthUrl(): string {
 }
 
 export async function GET(request: NextRequest) {
-  const session = await getSession();
+  // API Key 인증 체크 (GitHub Actions에서 호출 시 사용)
+  const apiKey = request.headers.get('X-API-Key');
+  const validApiKey = process.env.CAFE24_API_KEY;
+  const isApiKeyAuth = apiKey && validApiKey && apiKey === validApiKey;
 
-  if (!session) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  // API Key 인증이 아닌 경우 세션 체크
+  if (!isApiKeyAuth) {
+    const session = await getSession();
+    if (!session) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
   }
 
   const searchParams = request.nextUrl.searchParams;
