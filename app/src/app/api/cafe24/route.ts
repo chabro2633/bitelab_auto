@@ -18,6 +18,17 @@ interface TokenData {
 const COOKIE_NAME = 'cafe24_token';
 
 async function loadTokenFromCookie(): Promise<TokenData | null> {
+  // 1. 먼저 환경변수에서 토큰 확인 (GitHub Actions용)
+  const envToken = process.env.CAFE24_REFRESH_TOKEN;
+  if (envToken) {
+    return {
+      accessToken: '', // 빈 값 - refresh로 갱신됨
+      refreshToken: envToken,
+      expiresAt: 0, // 만료됨 - refresh 필요
+    };
+  }
+
+  // 2. 쿠키에서 토큰 확인 (브라우저 세션용)
   try {
     const cookieStore = await cookies();
     const tokenCookie = cookieStore.get(COOKIE_NAME);
