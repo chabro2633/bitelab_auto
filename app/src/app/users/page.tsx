@@ -39,7 +39,10 @@ export default function UserManagement() {
   const [showAddForm, setShowAddForm] = useState(false);
   const [showInviteForm, setShowInviteForm] = useState(false);
   const [showBrandPermissionForm, setShowBrandPermissionForm] = useState(false);
+  const [showRoleChangeForm, setShowRoleChangeForm] = useState(false);
   const [selectedUserForBrands, setSelectedUserForBrands] = useState<string>('');
+  const [selectedUserForRole, setSelectedUserForRole] = useState<string>('');
+  const [selectedNewRole, setSelectedNewRole] = useState<string>('user');
   const [newUser, setNewUser] = useState({ username: '', password: '', role: 'user', allowedBrands: [] as string[] });
   const [inviteUser, setInviteUser] = useState({ username: '', role: 'sales_viewer', allowedBrands: [] as string[] });
   const [userBrands, setUserBrands] = useState<string[]>([]);
@@ -188,6 +191,41 @@ export default function UserManagement() {
     }
   };
 
+  // 역할 변경
+  const handleUpdateRole = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+
+    try {
+      const response = await fetch('/api/users/update-role', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          username: selectedUserForRole,
+          role: selectedNewRole,
+        }),
+      });
+
+      if (response.ok) {
+        alert('역할이 성공적으로 변경되었습니다!');
+        setSelectedUserForRole('');
+        setSelectedNewRole('user');
+        setShowRoleChangeForm(false);
+        fetchUsers();
+      } else {
+        const errorData = await response.json();
+        alert(`오류: ${errorData.error}`);
+      }
+    } catch (error) {
+      console.error('Error updating role:', error);
+      alert('역할 변경 중 오류가 발생했습니다.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // 비밀번호 초기화
   const handleResetPassword = async (username: string) => {
     if (!confirm(`"${username}" 사용자의 비밀번호를 초기화하시겠습니까?\n\n초기 비밀번호: qkdlxmfoq123`)) {
@@ -266,6 +304,7 @@ export default function UserManagement() {
                   setShowInviteForm(!showInviteForm);
                   setShowAddForm(false);
                   setShowBrandPermissionForm(false);
+                  setShowRoleChangeForm(false);
                 }}
                 className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-md text-sm font-medium"
               >
@@ -276,6 +315,7 @@ export default function UserManagement() {
                   setShowAddForm(!showAddForm);
                   setShowInviteForm(false);
                   setShowBrandPermissionForm(false);
+                  setShowRoleChangeForm(false);
                 }}
                 className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md text-sm font-medium"
               >
@@ -286,10 +326,22 @@ export default function UserManagement() {
                   setShowBrandPermissionForm(!showBrandPermissionForm);
                   setShowAddForm(false);
                   setShowInviteForm(false);
+                  setShowRoleChangeForm(false);
                 }}
                 className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-md text-sm font-medium"
               >
                 {showBrandPermissionForm ? '취소' : '브랜드 권한 관리'}
+              </button>
+              <button
+                onClick={() => {
+                  setShowRoleChangeForm(!showRoleChangeForm);
+                  setShowAddForm(false);
+                  setShowInviteForm(false);
+                  setShowBrandPermissionForm(false);
+                }}
+                className="bg-orange-600 hover:bg-orange-700 text-white px-4 py-2 rounded-md text-sm font-medium"
+              >
+                {showRoleChangeForm ? '취소' : '역할 변경'}
               </button>
             </div>
 
@@ -540,6 +592,68 @@ export default function UserManagement() {
                     className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-md text-sm font-medium disabled:opacity-50"
                   >
                     {loading ? 'Updating...' : 'Update Permissions'}
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {showRoleChangeForm && (
+              <form onSubmit={handleUpdateRole} className="mb-6 p-4 bg-orange-50 rounded-md">
+                <h3 className="text-md font-medium text-gray-900 mb-4">역할 변경</h3>
+                <p className="text-sm text-gray-500 mb-4">
+                  사용자의 역할을 변경하여 접근 가능한 기능을 조정합니다.
+                </p>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div>
+                    <label htmlFor="selectedUserForRole" className="block text-sm font-medium text-gray-700">
+                      사용자 선택
+                    </label>
+                    <select
+                      id="selectedUserForRole"
+                      required
+                      className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-orange-500 focus:border-orange-500 sm:text-sm text-gray-900"
+                      value={selectedUserForRole}
+                      onChange={(e) => {
+                        setSelectedUserForRole(e.target.value);
+                        const selectedUser = users.find((u) => u.username === e.target.value);
+                        setSelectedNewRole(selectedUser?.role || 'user');
+                      }}
+                    >
+                      <option value="">사용자를 선택하세요...</option>
+                      {users.filter(u => u.username !== 'admin').map((user) => (
+                        <option key={user.id} value={user.username}>
+                          {user.username} (현재: {roleDescriptions[user.role]?.label || user.role})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label htmlFor="selectedNewRole" className="block text-sm font-medium text-gray-700">
+                      새 역할
+                    </label>
+                    <select
+                      id="selectedNewRole"
+                      required
+                      className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-orange-500 focus:border-orange-500 sm:text-sm text-gray-900"
+                      value={selectedNewRole}
+                      onChange={(e) => setSelectedNewRole(e.target.value)}
+                    >
+                      <option value="sales_viewer">매출 조회 - 실시간/기간별 매출 조회만 가능</option>
+                      <option value="user">일반 사용자 - 스크래핑 실행 및 로그 조회 가능</option>
+                      <option value="admin">관리자 - 모든 기능 접근 가능</option>
+                    </select>
+                    <p className="mt-1 text-xs text-gray-500">
+                      {roleDescriptions[selectedNewRole]?.description}
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-4">
+                  <button
+                    type="submit"
+                    disabled={loading || !selectedUserForRole}
+                    className="bg-orange-600 hover:bg-orange-700 text-white px-4 py-2 rounded-md text-sm font-medium disabled:opacity-50"
+                  >
+                    {loading ? '변경 중...' : '역할 변경'}
                   </button>
                 </div>
               </form>
