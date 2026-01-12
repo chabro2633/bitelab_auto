@@ -1,0 +1,117 @@
+name: Cigro Ads Creative Data Scraping
+
+on:
+  # 매일 오전 7시 30분 (한국시간)에 자동 실행
+  schedule:
+    - cron: '30 22 * * *'  # UTC 기준 22:30 (한국시간 오전 7시 30분)
+
+  # 수동 실행 가능
+  workflow_dispatch:
+    inputs:
+      start_date:
+        description: '시작 날짜 (YYYY-MM-DD 형식, 비워두면 어제 날짜)'
+        required: false
+        type: string
+      end_date:
+        description: '종료 날짜 (YYYY-MM-DD 형식, 비워두면 시작 날짜와 동일)'
+        required: false
+        type: string
+      brands:
+        description: '스크래핑할 브랜드 목록 (공백으로 구분, 비워두면 모든 브랜드)'
+        required: false
+        type: string
+
+jobs:
+  scrape-ads-creative-data:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Get Playwright version
+      id: playwright-version
+      run: |
+        PLAYWRIGHT_VERSION=$(pip show playwright | grep Version | cut -d' ' -f2)
+        echo "version=$PLAYWRIGHT_VERSION" >> $GITHUB_OUTPUT
+        echo "Playwright version: $PLAYWRIGHT_VERSION"
+
+    - name: Cache Playwright browsers
+      id: playwright-cache
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/ms-playwright
+        key: ${{ runner.os }}-playwright-${{ steps.playwright-version.outputs.version }}
+
+    - name: Install Playwright browsers
+      run: |
+        playwright install chromium --with-deps
+        echo "Playwright browsers installed successfully"
+
+    - name: Create Google Sheets credentials
+      env:
+        GOOGLE_SHEETS_CREDENTIALS: ${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}
+      run: |
+        # JSON 파일 생성 (환경변수에서)
+        echo "$GOOGLE_SHEETS_CREDENTIALS" > google_sheet_credentials.json
+
+        # JSON 형식 검증
+        python3 -c "
+        import json
+        import sys
+        try:
+            with open('google_sheet_credentials.json', 'r') as f:
+                data = json.load(f)
+            print('✅ JSON 형식이 올바릅니다.')
+            print(f'✅ 프로젝트 ID: {data.get(\"project_id\", \"N/A\")}')
+        except json.JSONDecodeError as e:
+            print(f'❌ JSON 파싱 오류: {e}')
+            sys.exit(1)
+        except Exception as e:
+            print(f'❌ 기타 오류: {e}')
+            sys.exit(1)
+        "
+
+    - name: Run ads creative scraping script
+      env:
+        EMAIL: ${{ secrets.CIGRO_EMAIL }}
+        PASSWORD: ${{ secrets.CIGRO_PASSWORD }}
+        GOOGLE_SHEET_NAME: ${{ secrets.GOOGLE_SHEET_NAME }}
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+      run: |
+        echo "광고 소재 데이터 스크래핑 시작"
+        python cigro_ads_ad.py
+
+    - name: Upload logs
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: ads-creative-scraping-logs
+        path: |
+          *.log
+          auth.json
+        retention-days: 7
+
+    - name: Send notification on success
+      if: success()
+      run: |
+        echo "✅ Cigro 광고 소재 데이터 스크래핑이 성공적으로 완료되었습니다!"
+        echo "📅 실행 시간: $(date)"
+        echo "📊 데이터가 Google Sheets에 업로드되었습니다."
+
+    - name: Send notification on failure
+      if: failure()
+      run: |
+        echo "❌ Cigro 광고 소재 데이터 스크래핑이 실패했습니다!"
+        echo "📅 실행 시간: $(date)"
+        echo "🔍 로그를 확인하여 문제를 파악하세요."
