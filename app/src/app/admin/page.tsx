@@ -140,6 +140,8 @@ export default function AdminDashboard() {
   const [autoRefreshInterval, setAutoRefreshInterval] = useState<NodeJS.Timeout | null>(null);
   const [cafe24NeedsAuth, setCafe24NeedsAuth] = useState(false);
   const [cafe24AuthUrl, setCafe24AuthUrl] = useState<string | null>(null);
+  const [slackSending, setSlackSending] = useState(false);
+  const [slackSendResult, setSlackSendResult] = useState<{ success: boolean; message: string } | null>(null);
 
   // 기간별 매출 탭용 state
   const [periodSalesStartDate, setPeriodSalesStartDate] = useState('');
@@ -520,6 +522,39 @@ export default function AdminDashboard() {
     } finally {
       console.log('[Cafe24] 조회 완료');
       setRealtimeLoading(false);
+    }
+  };
+
+  // Slack으로 매출 알림 수동 발송 (admin만 가능)
+  const sendSlackNotification = async () => {
+    if (!user || user.role !== 'admin') {
+      setSlackSendResult({ success: false, message: '관리자만 사용할 수 있습니다' });
+      return;
+    }
+
+    setSlackSending(true);
+    setSlackSendResult(null);
+
+    try {
+      const response = await fetch('/api/slack/send-hourly', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.success) {
+        setSlackSendResult({ success: true, message: data.message || 'Slack 알림이 전송되었습니다' });
+      } else {
+        setSlackSendResult({ success: false, message: data.error || 'Slack 전송에 실패했습니다' });
+      }
+    } catch (error) {
+      console.error('Slack 전송 오류:', error);
+      setSlackSendResult({ success: false, message: '네트워크 오류가 발생했습니다' });
+    } finally {
+      setSlackSending(false);
+      // 5초 후 결과 메시지 숨기기
+      setTimeout(() => setSlackSendResult(null), 5000);
     }
   };
 
@@ -2229,8 +2264,38 @@ export default function AdminDashboard() {
                       >
                         {realtimeLoading ? '로딩 중...' : '새로고침'}
                       </button>
+                      {user?.role === 'admin' && (
+                        <button
+                          onClick={sendSlackNotification}
+                          disabled={slackSending || realtimeLoading}
+                          className="px-3 py-1 text-xs bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:opacity-50 flex items-center gap-1"
+                        >
+                          {slackSending ? (
+                            <>
+                              <span className="animate-spin">⏳</span>
+                              전송 중...
+                            </>
+                          ) : (
+                            <>
+                              <span>📤</span>
+                              Slack 전송
+                            </>
+                          )}
+                        </button>
+                      )}
                     </div>
                   </div>
+
+                  {/* Slack 전송 결과 메시지 */}
+                  {slackSendResult && (
+                    <div className={`mb-4 p-3 rounded-md text-sm ${
+                      slackSendResult.success
+                        ? 'bg-green-50 text-green-700 border border-green-200'
+                        : 'bg-red-50 text-red-700 border border-red-200'
+                    }`}>
+                      {slackSendResult.success ? '✅' : '❌'} {slackSendResult.message}
+                    </div>
+                  )}
 
                   {/* Cafe24 인증 필요 */}
                   {cafe24NeedsAuth && cafe24AuthUrl && (

@@ -23,7 +23,7 @@ jobs:
 
     - name: Send Slack notification
       env:
-        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL_HOURLY }}
         CAFE24_API_KEY: ${{ secrets.CAFE24_API_KEY }}
       run: python slack_hourly_sales.py
 

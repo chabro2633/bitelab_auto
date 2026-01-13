@@ -11,7 +11,8 @@ import urllib.error
 from datetime import datetime, timedelta, timezone
 
 # 환경변수
-SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL")
+# 시간별 알림은 별도 채널로 전송 (SLACK_WEBHOOK_URL_HOURLY 우선, 없으면 SLACK_WEBHOOK_URL 사용)
+SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL_HOURLY") or os.getenv("SLACK_WEBHOOK_URL")
 VERCEL_API_URL = "https://app-bitelab.vercel.app/api/cafe24"
 CAFE24_API_KEY = os.getenv("CAFE24_API_KEY")
 
