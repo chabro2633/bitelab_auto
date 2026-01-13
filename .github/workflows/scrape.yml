@@ -127,16 +127,60 @@ jobs:
           auth.json
         retention-days: 7
         
-    - name: Send notification on success
+    - name: Send Slack notification on success
       if: success()
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
       run: |
-        echo "✅ Cigro 데이터 스크래핑이 성공적으로 완료되었습니다!"
-        echo "📅 실행 시간: $(date)"
-        echo "📊 데이터가 Google Sheets에 업로드되었습니다."
-        
-    - name: Send notification on failure
+        if [ -n "$SLACK_WEBHOOK_URL" ]; then
+          curl -X POST -H 'Content-type: application/json' \
+            --data '{
+              "blocks": [
+                {
+                  "type": "header",
+                  "text": {
+                    "type": "plain_text",
+                    "text": "✅ Cigro 매출 데이터 스크래핑 완료",
+                    "emoji": true
+                  }
+                },
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "매출 데이터가 Google Sheets에 업로드되었습니다.\n\n*실행 시간:* '"$(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M:%S')"' KST"
+                  }
+                }
+              ]
+            }' \
+            "$SLACK_WEBHOOK_URL"
+        fi
+
+    - name: Send Slack notification on failure
       if: failure()
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
       run: |
-        echo "❌ Cigro 데이터 스크래핑이 실패했습니다!"
-        echo "📅 실행 시간: $(date)"
-        echo "🔍 로그를 확인하여 문제를 파악하세요."
+        if [ -n "$SLACK_WEBHOOK_URL" ]; then
+          curl -X POST -H 'Content-type: application/json' \
+            --data '{
+              "blocks": [
+                {
+                  "type": "header",
+                  "text": {
+                    "type": "plain_text",
+                    "text": "❌ Cigro 매출 데이터 스크래핑 실패",
+                    "emoji": true
+                  }
+                },
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "매출 스크래핑 중 오류가 발생했습니다.\n\n*실행 시간:* '"$(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M:%S')"' KST\n*로그:* <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|GitHub Actions에서 확인>"
+                  }
+                }
+              ]
+            }' \
+            "$SLACK_WEBHOOK_URL"
+        fi
