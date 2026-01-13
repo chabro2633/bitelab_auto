@@ -131,11 +131,12 @@ async function fetchOrderPage(accessToken: string, startDate: string, endDate: s
   const params = new URLSearchParams({
     start_date: startDate,
     end_date: endDate,
-    order_status: 'N00,N10,N20,N21,N22,N30,N40,N50',
     limit: String(limit),
     offset: String(offset),
     embed: 'items',
   });
+
+  console.log(`[Cafe24] Fetching orders: ${apiUrl}?${params}`);
 
   const response = await fetch(`${apiUrl}?${params}`, {
     headers: {
