@@ -676,6 +676,8 @@ export async function GET(request: NextRequest) {
         queryDate: { startDate, endDate },
         hasToken: !!accessToken,
         tokenLength: accessToken?.length || 0,
+        tokenSource: newTokenData ? 'refreshed' : 'cached',
+        tokenPrefix: accessToken?.substring(0, 10) || 'none',
       },
       stats: {
         totalSales: stats.totalAmount,  // 유효 매출 (입금확인 이상, 취소/환불 제외)

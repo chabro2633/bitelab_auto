@@ -164,6 +164,8 @@ function AdminDashboard() {
       queryDate: { startDate: string; endDate: string };
       hasToken: boolean;
       tokenLength: number;
+      tokenSource?: string;
+      tokenPrefix?: string;
     };
   } | null>(null);
   const [realtimeLoading, setRealtimeLoading] = useState(false);
@@ -2386,10 +2388,12 @@ function AdminDashboard() {
                       {realtimeSales.debug && (
                         <div className="text-xs text-gray-400 bg-gray-50 p-2 rounded border">
                           <span className="font-mono">
-                            Debug: totalOrdersFromAPI={realtimeSales.debug.totalOrdersFromAPI},
-                            queryDate={realtimeSales.debug.queryDate?.startDate}~{realtimeSales.debug.queryDate?.endDate},
+                            Debug: orders={realtimeSales.debug.totalOrdersFromAPI},
+                            date={realtimeSales.debug.queryDate?.startDate},
                             hasToken={String(realtimeSales.debug.hasToken)},
-                            tokenLength={realtimeSales.debug.tokenLength}
+                            len={realtimeSales.debug.tokenLength},
+                            src={realtimeSales.debug.tokenSource || 'unknown'},
+                            prefix={realtimeSales.debug.tokenPrefix || 'none'}
                           </span>
                         </div>
                       )}
