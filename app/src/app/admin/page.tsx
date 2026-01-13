@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
-import { useRouter } from 'next/navigation';
+import React, { useState, useEffect, useRef, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 
 interface ExecutionResult {
   success: boolean;
@@ -13,9 +13,35 @@ interface ExecutionResult {
 
 type ScriptTab = 'sales' | 'ads' | 'realtime' | 'period-sales' | 'meta-ads';
 
-export default function AdminDashboard() {
+// Suspense로 감싸는 wrapper 컴포넌트
+export default function AdminDashboardWrapper() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center bg-gray-100">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
+      </div>
+    }>
+      <AdminDashboard />
+    </Suspense>
+  );
+}
+
+function AdminDashboard() {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<ScriptTab>('sales');
+  const searchParams = useSearchParams();
+
+  // URL 파라미터에서 탭 읽기
+  const validTabs: ScriptTab[] = ['sales', 'ads', 'realtime', 'period-sales', 'meta-ads'];
+  const tabParam = searchParams.get('tab') as ScriptTab | null;
+  const initialTab = tabParam && validTabs.includes(tabParam) ? tabParam : 'sales';
+
+  const [activeTab, setActiveTab] = useState<ScriptTab>(initialTab);
+
+  // 탭 변경 시 URL 업데이트
+  const handleTabChange = (tab: ScriptTab) => {
+    setActiveTab(tab);
+    router.push(`/admin?tab=${tab}`, { scroll: false });
+  };
   const [user, setUser] = useState<{
     userId: string;
     username: string;
@@ -233,6 +259,7 @@ export default function AdminDashboard() {
           // sales_viewer는 실시간 매출 탭만 접근 가능
           if (data.user.role === 'sales_viewer') {
             setActiveTab('realtime');
+            router.replace('/admin?tab=realtime', { scroll: false });
           }
         } else {
           router.push('/login');
@@ -1547,7 +1574,7 @@ export default function AdminDashboard() {
             <nav className="-mb-px flex space-x-8">
               {canAccessTab('sales') && (
                 <button
-                  onClick={() => setActiveTab('sales')}
+                  onClick={() => handleTabChange('sales')}
                   className={`py-4 px-1 border-b-2 font-medium text-sm ${
                     activeTab === 'sales'
                       ? 'border-indigo-500 text-indigo-600'
@@ -1559,7 +1586,7 @@ export default function AdminDashboard() {
               )}
               {canAccessTab('ads') && (
                 <button
-                  onClick={() => setActiveTab('ads')}
+                  onClick={() => handleTabChange('ads')}
                   className={`py-4 px-1 border-b-2 font-medium text-sm ${
                     activeTab === 'ads'
                       ? 'border-orange-500 text-orange-600'
@@ -1571,7 +1598,7 @@ export default function AdminDashboard() {
               )}
               {canAccessTab('realtime') && (
                 <button
-                  onClick={() => setActiveTab('realtime')}
+                  onClick={() => handleTabChange('realtime')}
                   className={`py-4 px-1 border-b-2 font-medium text-sm ${
                     activeTab === 'realtime'
                       ? 'border-green-500 text-green-600'
@@ -1583,7 +1610,7 @@ export default function AdminDashboard() {
               )}
               {canAccessTab('period-sales') && (
                 <button
-                  onClick={() => setActiveTab('period-sales')}
+                  onClick={() => handleTabChange('period-sales')}
                   className={`py-4 px-1 border-b-2 font-medium text-sm ${
                     activeTab === 'period-sales'
                       ? 'border-purple-500 text-purple-600'
@@ -1595,7 +1622,7 @@ export default function AdminDashboard() {
               )}
               {canAccessTab('meta-ads') && (
                 <button
-                  onClick={() => setActiveTab('meta-ads')}
+                  onClick={() => handleTabChange('meta-ads')}
                   className={`py-4 px-1 border-b-2 font-medium text-sm ${
                     activeTab === 'meta-ads'
                       ? 'border-blue-500 text-blue-600'
