@@ -131,6 +131,7 @@ async function fetchOrderPage(accessToken: string, startDate: string, endDate: s
   const params = new URLSearchParams({
     start_date: startDate,
     end_date: endDate,
+    order_status: 'N00,N10,N20,N21,N22,N30,N40,N50',
     limit: String(limit),
     offset: String(offset),
     embed: 'items',
@@ -142,7 +143,7 @@ async function fetchOrderPage(accessToken: string, startDate: string, endDate: s
     headers: {
       'Authorization': `Bearer ${accessToken}`,
       'Content-Type': 'application/json',
-      'X-Cafe24-Api-Version': '2024-06-01',
+      'X-Cafe24-Api-Version': '2025-06-01',
     },
   });
 
