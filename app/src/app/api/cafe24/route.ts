@@ -18,9 +18,25 @@ interface TokenData {
 const COOKIE_NAME = 'cafe24_token';
 
 async function loadTokenFromCookie(): Promise<TokenData | null> {
-  // 1. 먼저 환경변수에서 토큰 확인 (GitHub Actions용)
+  // 1. 먼저 쿠키에서 토큰 확인 (브라우저 세션용 - 우선)
+  try {
+    const cookieStore = await cookies();
+    const tokenCookie = cookieStore.get(COOKIE_NAME);
+    if (tokenCookie) {
+      const parsed = JSON.parse(tokenCookie.value);
+      // 쿠키 토큰이 유효하면 사용
+      if (parsed.accessToken && parsed.refreshToken) {
+        return parsed;
+      }
+    }
+  } catch (error) {
+    console.error('Failed to load token from cookie:', error);
+  }
+
+  // 2. 환경변수에서 토큰 확인 (GitHub Actions용 - fallback)
   const envToken = process.env.CAFE24_REFRESH_TOKEN;
   if (envToken) {
+    console.log('Using CAFE24_REFRESH_TOKEN from environment variable');
     return {
       accessToken: '', // 빈 값 - refresh로 갱신됨
       refreshToken: envToken,
@@ -28,16 +44,6 @@ async function loadTokenFromCookie(): Promise<TokenData | null> {
     };
   }
 
-  // 2. 쿠키에서 토큰 확인 (브라우저 세션용)
-  try {
-    const cookieStore = await cookies();
-    const tokenCookie = cookieStore.get(COOKIE_NAME);
-    if (tokenCookie) {
-      return JSON.parse(tokenCookie.value);
-    }
-  } catch (error) {
-    console.error('Failed to load token from cookie:', error);
-  }
   return null;
 }
 
@@ -59,8 +65,8 @@ async function refreshAccessToken(refreshToken: string): Promise<TokenData> {
 
   if (!response.ok) {
     const errorText = await response.text();
-    console.error('Token refresh failed:', errorText);
-    throw new Error('Failed to refresh token');
+    console.error('Token refresh failed:', response.status, errorText);
+    throw new Error(`Failed to refresh token: ${response.status} - ${errorText}`);
   }
 
   const data = await response.json();
