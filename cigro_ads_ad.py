@@ -1,5 +1,7 @@
 import time
 import os
+import json
+import urllib.request
 import pandas as pd
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
@@ -18,6 +20,9 @@ GOOGLE_CRED_FILE = "google_sheet_credentials.json"  # 👉 다운로드한 JSON 
 EMAIL = "tei.cha@bitelab.co.kr"  # 👉 이메일
 PASSWORD = "qkfmsj123"           # 👉 비밀번호
 
+# Slack 설정
+SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL")
+
 BRANDS = ["바르너", "색동서울", "보호리", "먼슬리픽", "릴리이브"]  # 브랜드 이름 리스트
 
 # 날짜 모드 설정
@@ -27,6 +32,86 @@ DATE_RANGE_END = "2025-12-31"    # USE_DATE_RANGE=True 일 때만 사용
 
 # 브라우저 모드 설정
 HEADLESS = True  # True: 백그라운드 실행, False: 브라우저 창 표시
+
+
+def send_slack_notification(success: bool, message: str, details: dict = None):
+    """
+    Slack Incoming Webhook으로 알림을 전송합니다.
+    """
+    if not SLACK_WEBHOOK_URL:
+        print("⚠️ SLACK_WEBHOOK_URL이 설정되지 않아 슬랙 알림을 건너뜁니다.")
+        return
+
+    if success:
+        emoji = "✅"
+        color = "#36a64f"
+        status = "성공"
+    else:
+        emoji = "❌"
+        color = "#dc3545"
+        status = "실패"
+
+    blocks = [
+        {
+            "type": "header",
+            "text": {
+                "type": "plain_text",
+                "text": f"{emoji} Cigro 광고 소재 스크래핑 {status}",
+                "emoji": True
+            }
+        },
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": message
+            }
+        }
+    ]
+
+    if details:
+        fields = []
+        for key, value in details.items():
+            fields.append({
+                "type": "mrkdwn",
+                "text": f"*{key}:*\n{value}"
+            })
+        blocks.append({
+            "type": "section",
+            "fields": fields[:10]
+        })
+
+    KST = timezone(timedelta(hours=9))
+    now_kst = datetime.now(KST)
+    blocks.append({
+        "type": "context",
+        "elements": [
+            {
+                "type": "mrkdwn",
+                "text": f"🕐 {now_kst.strftime('%Y-%m-%d %H:%M:%S')} KST"
+            }
+        ]
+    })
+
+    payload = {
+        "blocks": blocks,
+        "attachments": [{"color": color, "blocks": []}]
+    }
+
+    try:
+        data = json.dumps(payload).encode('utf-8')
+        req = urllib.request.Request(
+            SLACK_WEBHOOK_URL,
+            data=data,
+            headers={'Content-Type': 'application/json'}
+        )
+        with urllib.request.urlopen(req, timeout=10) as response:
+            if response.status == 200:
+                print("📨 슬랙 알림 전송 완료")
+            else:
+                print(f"⚠️ 슬랙 알림 전송 실패: HTTP {response.status}")
+    except Exception as e:
+        print(f"⚠️ 슬랙 알림 전송 중 오류: {e}")
 
 
 def upload_to_google_sheets(df, sheet_name, selected_date):
@@ -250,61 +335,96 @@ def main():
     target_dates = build_target_dates()
     print("🎯 수집 대상 날짜들:", target_dates)
 
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=HEADLESS)
+    # 결과 추적
+    total_success = 0
+    total_fail = 0
 
-        # 로그인/세션
-        if os.path.exists("auth.json"):
-            print("🔐 기존 로그인 세션 불러오는 중...")
-            context = browser.new_context(storage_state="auth.json")
-        else:
-            print("🧭 세션 없음 ➜ 수동 로그인 시작")
-            context = browser.new_context()
-            page = context.new_page()
-            page.goto("https://app.cigro.io")
-            print("📝 로그인 자동화 중...")
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=HEADLESS)
 
-            # 이메일, 비밀번호 자동 입력
-            page.fill(
-                'input.bubble-element.Input.cnaNaCaE0.a1746627658297x1166[type="email"]',
-                EMAIL
-            )
-            page.fill('input[type="password"]', PASSWORD)
-
-            # 로그인 버튼 클릭
-            page.click('div.clickable-element.bubble-element.Group.cnaNaCaF0.bubble-r-container')
-            page.wait_for_timeout(5000)  # 로그인 후 대기
-
-            print("🔐 로그인 완료 후 세션 저장 중...")
-            context.storage_state(path="auth.json")  # 로그인 세션 저장
-
-        # 날짜별 + 브랜드별 반복
-        for selected_date in target_dates:
-            for brand in BRANDS:
-                print(f"\n==============================")
-                print(f"🔍 {selected_date} / {brand} 광고 소재 데이터 추출 중...")
-                print(f"==============================")
-
-                # group_by=ad 로 변경 (광고 소재 단위)
-                target_url = (
-                    "https://app.cigro.io/?menu=analysis&tab=ad&group_by=ad"
-                    f"&brand_name={brand}&start_date={selected_date}&end_date={selected_date}"
-                )
-
+            # 로그인/세션
+            if os.path.exists("auth.json"):
+                print("🔐 기존 로그인 세션 불러오는 중...")
+                context = browser.new_context(storage_state="auth.json")
+            else:
+                print("🧭 세션 없음 ➜ 수동 로그인 시작")
+                context = browser.new_context()
                 page = context.new_page()
-                page.goto(target_url)
-                page.wait_for_timeout(10000)  # 테이블 로딩 대기
+                page.goto("https://app.cigro.io")
+                print("📝 로그인 자동화 중...")
 
-                df = extract_all_pages_data(page, selected_date)
+                # 이메일, 비밀번호 자동 입력
+                page.fill(
+                    'input.bubble-element.Input.cnaNaCaE0.a1746627658297x1166[type="email"]',
+                    EMAIL
+                )
+                page.fill('input[type="password"]', PASSWORD)
 
-                # 시트 이름: {브랜드}_광고_소재
-                sheet_name = f"{brand}_광고_소재"
-                upload_to_google_sheets(df, sheet_name, selected_date)
+                # 로그인 버튼 클릭
+                page.click('div.clickable-element.bubble-element.Group.cnaNaCaF0.bubble-r-container')
+                page.wait_for_timeout(5000)  # 로그인 후 대기
 
-                page.close()
+                print("🔐 로그인 완료 후 세션 저장 중...")
+                context.storage_state(path="auth.json")  # 로그인 세션 저장
 
-        context.close()
-        browser.close()
+            # 날짜별 + 브랜드별 반복
+            for selected_date in target_dates:
+                for brand in BRANDS:
+                    try:
+                        print(f"\n==============================")
+                        print(f"🔍 {selected_date} / {brand} 광고 소재 데이터 추출 중...")
+                        print(f"==============================")
+
+                        # group_by=ad 로 변경 (광고 소재 단위)
+                        target_url = (
+                            "https://app.cigro.io/?menu=analysis&tab=ad&group_by=ad"
+                            f"&brand_name={brand}&start_date={selected_date}&end_date={selected_date}"
+                        )
+
+                        page = context.new_page()
+                        page.goto(target_url)
+                        page.wait_for_timeout(10000)  # 테이블 로딩 대기
+
+                        df = extract_all_pages_data(page, selected_date)
+
+                        # 시트 이름: {브랜드}_광고_소재
+                        sheet_name = f"{brand}_광고_소재"
+                        upload_to_google_sheets(df, sheet_name, selected_date)
+
+                        page.close()
+                        total_success += 1
+                    except Exception as e:
+                        print(f"❌ {brand} 스크래핑 실패: {e}")
+                        total_fail += 1
+
+            context.close()
+            browser.close()
+
+        # 성공 알림
+        date_str = target_dates[0] if len(target_dates) == 1 else f"{target_dates[0]} ~ {target_dates[-1]}"
+        details = {
+            "📅 기간": date_str,
+            "📦 브랜드": ", ".join(BRANDS),
+            "✅ 성공": f"{total_success}건",
+            "❌ 실패": f"{total_fail}건"
+        }
+
+        if total_fail == 0:
+            message = f"*{len(target_dates)}일* x *{len(BRANDS)}개 브랜드* 광고 소재 스크래핑이 모두 완료되었습니다."
+            send_slack_notification(True, message, details)
+        else:
+            message = f"*{len(target_dates)}일* x *{len(BRANDS)}개 브랜드* 중 *{total_success}건 성공*, *{total_fail}건 실패*했습니다."
+            send_slack_notification(False, message, details)
+
+    except Exception as e:
+        # 실패 알림
+        send_slack_notification(
+            False,
+            f"광고 소재 스크래핑 중 오류가 발생했습니다.\n\n```{str(e)}```",
+            {"📅 기간": target_dates[0] if target_dates else "N/A"}
+        )
+        raise
 
 
 if __name__ == "__main__":
