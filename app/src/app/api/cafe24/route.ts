@@ -6,7 +6,7 @@ import { cookies } from 'next/headers';
 const CAFE24_CLIENT_ID = process.env.CAFE24_CLIENT_ID || 'SUeffNXsNJDK9fv5it5Ygg';
 const CAFE24_CLIENT_SECRET = process.env.CAFE24_CLIENT_SECRET || '8yMByUfsICdGJQm6ziS07F';
 const CAFE24_MALL_ID = process.env.CAFE24_MALL_ID || 'baruner';
-const CAFE24_REDIRECT_URI = process.env.CAFE24_REDIRECT_URI || 'http://localhost:3005/api/cafe24/callback';
+const CAFE24_REDIRECT_URI = process.env.CAFE24_REDIRECT_URI || 'https://app-bitelab.vercel.app/api/cafe24/callback';
 
 // 토큰 저장/불러오기
 interface TokenData {
