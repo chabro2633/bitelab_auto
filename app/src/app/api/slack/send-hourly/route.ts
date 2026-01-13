@@ -205,6 +205,13 @@ export async function POST() {
     const salesData = await cafe24Response.json();
 
     if (!salesData.success) {
+      // needsAuth인 경우 더 명확한 메시지 제공
+      if (salesData.needsAuth) {
+        return NextResponse.json(
+          { error: 'Cafe24 토큰이 KV에 저장되지 않았습니다. 어드민 페이지에서 Cafe24 재인증을 진행해주세요.' },
+          { status: 401 }
+        );
+      }
       return NextResponse.json(
         { error: salesData.error || 'Failed to fetch sales data' },
         { status: 500 }
