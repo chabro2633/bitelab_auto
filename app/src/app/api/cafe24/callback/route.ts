@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { kv } from '@vercel/kv';
 
 // Cafe24 API 설정
 const CAFE24_CLIENT_ID = process.env.CAFE24_CLIENT_ID || 'SUeffNXsNJDK9fv5it5Ygg';
@@ -7,11 +8,22 @@ const CAFE24_MALL_ID = process.env.CAFE24_MALL_ID || 'baruner';
 const CAFE24_REDIRECT_URI = process.env.CAFE24_REDIRECT_URI || 'https://app-bitelab.vercel.app/api/cafe24/callback';
 
 const COOKIE_NAME = 'cafe24_token';
+const KV_TOKEN_KEY = 'cafe24_token_baruner';
 
 interface TokenData {
   accessToken: string;
   refreshToken: string;
   expiresAt: number;
+}
+
+// Vercel KV에 토큰 저장
+async function saveTokenToKV(token: TokenData): Promise<void> {
+  try {
+    await kv.set(KV_TOKEN_KEY, token);
+    console.log('[Cafe24 Callback] Token saved to KV');
+  } catch (error) {
+    console.error('[Cafe24 Callback] Failed to save token to KV:', error);
+  }
 }
 
 // Authorization Code를 Access Token으로 교환
@@ -159,7 +171,10 @@ export async function GET(request: NextRequest) {
       path: '/',
     });
 
-    console.log('Token saved to cookie successfully');
+    // Vercel KV에도 토큰 저장 (서버/GitHub Actions용)
+    await saveTokenToKV(tokenData);
+
+    console.log('Token saved to cookie and KV successfully');
     return response;
 
   } catch (err) {

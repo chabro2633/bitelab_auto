@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '../../../lib/session';
 import { cookies } from 'next/headers';
+import { kv } from '@vercel/kv';
 
 // Cafe24 API 설정
 const CAFE24_CLIENT_ID = process.env.CAFE24_CLIENT_ID || 'SUeffNXsNJDK9fv5it5Ygg';
@@ -16,9 +17,34 @@ interface TokenData {
 }
 
 const COOKIE_NAME = 'cafe24_token';
+const KV_TOKEN_KEY = 'cafe24_token_baruner';
 
-async function loadTokenFromCookie(): Promise<TokenData | null> {
-  // 1. 먼저 쿠키에서 토큰 확인 (브라우저 세션용 - 우선)
+// Vercel KV에서 토큰 로드
+async function loadTokenFromKV(): Promise<TokenData | null> {
+  try {
+    const token = await kv.get<TokenData>(KV_TOKEN_KEY);
+    if (token) {
+      console.log('[Cafe24] Token loaded from KV:', { hasAccess: !!token.accessToken, hasRefresh: !!token.refreshToken });
+      return token;
+    }
+  } catch (error) {
+    console.error('[Cafe24] Failed to load token from KV:', error);
+  }
+  return null;
+}
+
+// Vercel KV에 토큰 저장
+async function saveTokenToKV(token: TokenData): Promise<void> {
+  try {
+    await kv.set(KV_TOKEN_KEY, token);
+    console.log('[Cafe24] Token saved to KV');
+  } catch (error) {
+    console.error('[Cafe24] Failed to save token to KV:', error);
+  }
+}
+
+async function loadToken(): Promise<TokenData | null> {
+  // 1. 먼저 쿠키에서 토큰 확인 (브라우저 세션용)
   try {
     const cookieStore = await cookies();
     const tokenCookie = cookieStore.get(COOKIE_NAME);
@@ -26,7 +52,6 @@ async function loadTokenFromCookie(): Promise<TokenData | null> {
     if (tokenCookie) {
       const parsed = JSON.parse(tokenCookie.value);
       console.log('[Cafe24] Parsed cookie:', { hasAccess: !!parsed.accessToken, hasRefresh: !!parsed.refreshToken, expiresAt: parsed.expiresAt });
-      // 쿠키 토큰이 유효하면 사용
       if (parsed.accessToken && parsed.refreshToken) {
         return parsed;
       }
@@ -35,14 +60,20 @@ async function loadTokenFromCookie(): Promise<TokenData | null> {
     console.error('[Cafe24] Failed to load token from cookie:', error);
   }
 
-  // 2. 환경변수에서 토큰 확인 (GitHub Actions용 - fallback)
+  // 2. Vercel KV에서 토큰 확인 (서버/GitHub Actions용)
+  const kvToken = await loadTokenFromKV();
+  if (kvToken) {
+    return kvToken;
+  }
+
+  // 3. 환경변수에서 토큰 확인 (최후 fallback)
   const envToken = process.env.CAFE24_REFRESH_TOKEN;
   if (envToken) {
-    console.log('Using CAFE24_REFRESH_TOKEN from environment variable');
+    console.log('[Cafe24] Using CAFE24_REFRESH_TOKEN from environment variable');
     return {
-      accessToken: '', // 빈 값 - refresh로 갱신됨
+      accessToken: '',
       refreshToken: envToken,
-      expiresAt: 0, // 만료됨 - refresh 필요
+      expiresAt: 0,
     };
   }
 
@@ -88,7 +119,7 @@ async function refreshAccessToken(refreshToken: string): Promise<TokenData> {
 
 // Access Token 가져오기 (캐시 또는 갱신)
 async function getAccessToken(): Promise<{ token: string; newTokenData?: TokenData }> {
-  const tokenData = await loadTokenFromCookie();
+  const tokenData = await loadToken();
 
   if (!tokenData) {
     throw new Error('NO_TOKEN');
@@ -102,6 +133,8 @@ async function getAccessToken(): Promise<{ token: string; newTokenData?: TokenDa
   // 토큰 갱신
   if (tokenData.refreshToken) {
     const newToken = await refreshAccessToken(tokenData.refreshToken);
+    // KV에도 저장 (다른 요청에서 사용)
+    await saveTokenToKV(newToken);
     return { token: newToken.accessToken, newTokenData: newToken };
   }
 
@@ -565,7 +598,7 @@ export async function GET(request: NextRequest) {
 
   // 인증 상태 확인
   if (action === 'status') {
-    const tokenData = await loadTokenFromCookie();
+    const tokenData = await loadToken();
     return NextResponse.json({
       authenticated: !!tokenData && tokenData.expiresAt > Date.now(),
       authUrl: getAuthUrl(),
