@@ -159,6 +159,12 @@ function AdminDashboard() {
       itemCount: number;
     }>;
     lastUpdated: string;
+    debug?: {
+      totalOrdersFromAPI: number;
+      queryDate: { startDate: string; endDate: string };
+      hasToken: boolean;
+      tokenLength: number;
+    };
   } | null>(null);
   const [realtimeLoading, setRealtimeLoading] = useState(false);
   const [realtimeError, setRealtimeError] = useState<string | null>(null);
@@ -2375,6 +2381,18 @@ function AdminDashboard() {
                         마지막 업데이트: {new Date(realtimeSales.lastUpdated).toLocaleString('ko-KR')}
                         {autoRefresh && <span className="ml-2 text-green-600">(1분마다 자동 새로고침)</span>}
                       </div>
+
+                      {/* Debug 정보 (임시) */}
+                      {realtimeSales.debug && (
+                        <div className="text-xs text-gray-400 bg-gray-50 p-2 rounded border">
+                          <span className="font-mono">
+                            Debug: totalOrdersFromAPI={realtimeSales.debug.totalOrdersFromAPI},
+                            queryDate={realtimeSales.debug.queryDate?.startDate}~{realtimeSales.debug.queryDate?.endDate},
+                            hasToken={String(realtimeSales.debug.hasToken)},
+                            tokenLength={realtimeSales.debug.tokenLength}
+                          </span>
+                        </div>
+                      )}
 
                       {/* 주요 지표 카드 */}
                       <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
