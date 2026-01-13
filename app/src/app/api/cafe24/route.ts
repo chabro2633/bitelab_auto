@@ -139,17 +139,18 @@ async function fetchOrderPage(accessToken: string, startDate: string, endDate: s
     headers: {
       'Authorization': `Bearer ${accessToken}`,
       'Content-Type': 'application/json',
-      'X-Cafe24-Api-Version': '2025-06-01',
+      'X-Cafe24-Api-Version': '2024-06-01',
     },
   });
 
   if (!response.ok) {
     const errorText = await response.text();
-    console.error('Orders API failed:', errorText);
+    console.error('[Cafe24] Orders API failed:', response.status, errorText);
     throw new Error(`Failed to fetch orders: ${errorText}`);
   }
 
   const data = await response.json();
+  console.log(`[Cafe24] fetchOrderPage: offset=${offset}, returned ${data.orders?.length || 0} orders`);
   return data.orders || [];
 }
 
@@ -656,12 +657,20 @@ export async function GET(request: NextRequest) {
       };
     });
 
+    // 디버그 로그
+    console.log(`[Cafe24] API Response: ${startDate}~${endDate}, orders=${orders.length}, totalSales=${stats.totalAmount}`);
+
     const response = NextResponse.json({
       success: true,
       startDate,
       endDate,
       mallId: CAFE24_MALL_ID,
       brandName: '바르너',
+      // 디버그 정보 (임시)
+      debug: {
+        totalOrdersFromAPI: orders.length,
+        queryDate: { startDate, endDate },
+      },
       stats: {
         totalSales: stats.totalAmount,  // 유효 매출 (입금확인 이상, 취소/환불 제외)
         totalOrders: stats.totalOrders,  // 전체 주문 수
