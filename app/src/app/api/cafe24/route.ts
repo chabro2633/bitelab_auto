@@ -22,15 +22,17 @@ async function loadTokenFromCookie(): Promise<TokenData | null> {
   try {
     const cookieStore = await cookies();
     const tokenCookie = cookieStore.get(COOKIE_NAME);
+    console.log('[Cafe24] Cookie check:', tokenCookie ? 'found' : 'not found');
     if (tokenCookie) {
       const parsed = JSON.parse(tokenCookie.value);
+      console.log('[Cafe24] Parsed cookie:', { hasAccess: !!parsed.accessToken, hasRefresh: !!parsed.refreshToken, expiresAt: parsed.expiresAt });
       // 쿠키 토큰이 유효하면 사용
       if (parsed.accessToken && parsed.refreshToken) {
         return parsed;
       }
     }
   } catch (error) {
-    console.error('Failed to load token from cookie:', error);
+    console.error('[Cafe24] Failed to load token from cookie:', error);
   }
 
   // 2. 환경변수에서 토큰 확인 (GitHub Actions용 - fallback)
@@ -670,6 +672,8 @@ export async function GET(request: NextRequest) {
       debug: {
         totalOrdersFromAPI: orders.length,
         queryDate: { startDate, endDate },
+        hasToken: !!accessToken,
+        tokenLength: accessToken?.length || 0,
       },
       stats: {
         totalSales: stats.totalAmount,  // 유효 매출 (입금확인 이상, 취소/환불 제외)
