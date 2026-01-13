@@ -66,6 +66,10 @@ async function refreshAccessToken(refreshToken: string): Promise<TokenData> {
   if (!response.ok) {
     const errorText = await response.text();
     console.error('Token refresh failed:', response.status, errorText);
+    // invalid_grant 에러는 refresh token이 만료되었음을 의미 - 재인증 필요
+    if (errorText.includes('invalid_grant')) {
+      throw new Error('TOKEN_EXPIRED');
+    }
     throw new Error(`Failed to refresh token: ${response.status} - ${errorText}`);
   }
 
@@ -576,12 +580,14 @@ export async function GET(request: NextRequest) {
       accessToken = result.token;
       newTokenData = result.newTokenData;
     } catch (error) {
-      if (error instanceof Error && error.message === 'NO_TOKEN') {
+      if (error instanceof Error && (error.message === 'NO_TOKEN' || error.message === 'TOKEN_EXPIRED')) {
         return NextResponse.json({
           success: false,
           needsAuth: true,
           authUrl: getAuthUrl(),
-          error: 'Cafe24 인증이 필요합니다. 아래 버튼을 클릭하여 인증해주세요.',
+          error: error.message === 'TOKEN_EXPIRED'
+            ? 'Cafe24 인증이 만료되었습니다. 아래 버튼을 클릭하여 다시 인증해주세요.'
+            : 'Cafe24 인증이 필요합니다. 아래 버튼을 클릭하여 인증해주세요.',
         });
       }
       throw error;
