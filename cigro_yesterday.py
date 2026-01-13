@@ -76,7 +76,7 @@ def send_slack_notification(success: bool, message: str, details: dict = None):
             "type": "header",
             "text": {
                 "type": "plain_text",
-                "text": f"{emoji} Cigro 스크래핑 {status}",
+                "text": f"{emoji} Cigro 매출 스크래핑 {status}",
                 "emoji": True
             }
         },
