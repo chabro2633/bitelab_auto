@@ -675,43 +675,17 @@ function AdminDashboard() {
       recentOrders: [],
     });
 
-    // 3일씩 기간 분할 (더 작은 단위로)
-    const chunkDays = 3;
-    const dateRanges: Array<{ start: string; end: string; dates: string[] }> = [];
-    let currentStart = new Date(startDate);
-
-    while (currentStart <= endDate) {
-      const chunkEnd = new Date(currentStart);
-      chunkEnd.setDate(chunkEnd.getDate() + chunkDays - 1);
-      const actualEnd = chunkEnd > endDate ? endDate : chunkEnd;
-
-      const chunkDates: string[] = [];
-      for (let d = new Date(currentStart); d <= actualEnd; d.setDate(d.getDate() + 1)) {
-        chunkDates.push(formatDate(new Date(d)));
-      }
-
-      dateRanges.push({
-        start: formatDate(currentStart),
-        end: formatDate(actualEnd),
-        dates: chunkDates
-      });
-
-      currentStart = new Date(actualEnd);
-      currentStart.setDate(currentStart.getDate() + 1);
-    }
-
-    console.log('[PeriodSales] 기간 분할:', dateRanges.length, '개 구간');
+    console.log('[PeriodSales] 1일씩 순차 조회 시작:', allDates.length, '일');
 
     // 데이터 저장용
     const dailySalesMap = new Map<string, { sales: number; orders: number }>();
-    let lastSuccessData: Record<string, unknown> | null = null;
     const allTopProducts: Array<{ name: string; quantity: number; sales: number; options?: Array<{ optionValue: string; quantity: number; sales: number }> }> = [];
 
-    // 단일 구간 조회 함수 (재시도 포함)
-    const fetchRange = async (range: { start: string; end: string; dates: string[] }, attempt: number = 1): Promise<boolean> => {
+    // 단일 날짜 조회 함수 (재시도 포함)
+    const fetchSingleDate = async (dateStr: string, attempt: number = 1): Promise<boolean> => {
       const maxRetries = 3;
       try {
-        const response = await fetch(`/api/cafe24?startDate=${range.start}&endDate=${range.end}`);
+        const response = await fetch(`/api/cafe24?startDate=${dateStr}&endDate=${dateStr}`);
         const data = await response.json();
 
         if (data.needsAuth) {
@@ -722,12 +696,14 @@ function AdminDashboard() {
         }
 
         if (data.success) {
-          lastSuccessData = data;
-
           // 일자별 데이터 업데이트
-          data.dailySales?.forEach((day: { date: string; sales: number; orders: number }) => {
-            dailySalesMap.set(day.date, { sales: day.sales, orders: day.orders });
-          });
+          const dayData = data.dailySales?.[0];
+          if (dayData) {
+            dailySalesMap.set(dayData.date, { sales: dayData.sales, orders: dayData.orders });
+          } else {
+            // API에서 데이터가 없으면 0으로 설정
+            dailySalesMap.set(dateStr, { sales: 0, orders: 0 });
+          }
 
           // topProducts 합치기
           if (data.topProducts) {
@@ -735,11 +711,10 @@ function AdminDashboard() {
           }
 
           // 상태 업데이트
-          setDailyLoadingStatus(prev => {
-            const updated = { ...prev };
-            range.dates.forEach(date => { updated[date] = 'success'; });
-            return updated;
-          });
+          setDailyLoadingStatus(prev => ({
+            ...prev,
+            [dateStr]: 'success'
+          }));
 
           // 실시간 UI 업데이트
           setPeriodSales(prev => {
@@ -792,33 +767,34 @@ function AdminDashboard() {
             };
           });
 
-          console.log(`[PeriodSales] ${range.start}~${range.end}: 성공`);
+          console.log(`[PeriodSales] ${dateStr}: 성공`);
           return true;
         }
         throw new Error('API returned success: false');
       } catch (err) {
-        console.error(`[PeriodSales] ${range.start}~${range.end} 시도 ${attempt} 실패:`, err);
+        console.error(`[PeriodSales] ${dateStr} 시도 ${attempt} 실패:`, err);
 
         if (attempt < maxRetries) {
-          // 1초 대기 후 재시도
-          await new Promise(resolve => setTimeout(resolve, 1000));
-          return fetchRange(range, attempt + 1);
+          // 500ms 대기 후 재시도
+          await new Promise(resolve => setTimeout(resolve, 500));
+          return fetchSingleDate(dateStr, attempt + 1);
         }
 
         // 최종 실패
-        setDailyLoadingStatus(prev => {
-          const updated = { ...prev };
-          range.dates.forEach(date => { updated[date] = 'failed'; });
-          return updated;
-        });
+        setDailyLoadingStatus(prev => ({
+          ...prev,
+          [dateStr]: 'failed'
+        }));
         return false;
       }
     };
 
     try {
-      // 순차적으로 각 구간 조회 (병렬 시 API 부하 방지)
-      for (const range of dateRanges) {
-        await fetchRange(range);
+      // 1일씩 순차 조회 (API 과부하 방지)
+      for (const dateStr of allDates) {
+        await fetchSingleDate(dateStr);
+        // 각 요청 사이에 100ms 대기 (API 부하 분산)
+        await new Promise(resolve => setTimeout(resolve, 100));
       }
 
       // 비교 기능이 활성화되어 있으면 이전 동일 기간 데이터도 가져오기
