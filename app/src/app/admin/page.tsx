@@ -3288,9 +3288,11 @@ function AdminDashboard() {
                                     const loadingStatus = dailyLoadingStatus[dateStr];
                                     const isLoading = loadingStatus === 'loading';
                                     const isFailed = loadingStatus === 'failed';
+                                    const isSuccess = loadingStatus === 'success';
 
-                                    const sales = dayData?.sales ?? null;
-                                    const orders = dayData?.orders ?? null;
+                                    // dayData가 있으면 sales/orders 사용, 없으면 로딩 상태에 따라 표시
+                                    const sales = dayData ? dayData.sales : null;
+                                    const orders = dayData ? dayData.orders : null;
                                     const diff = sales !== null && prevDayData ? sales - prevDayData.sales : null;
                                     const diffPercent = diff !== null && prevDayData && prevDayData.sales > 0
                                       ? ((diff / prevDayData.sales) * 100).toFixed(1)
@@ -3309,10 +3311,10 @@ function AdminDashboard() {
                                             <span className="text-blue-500">로딩중...</span>
                                           ) : isFailed ? (
                                             <span className="text-red-500">조회 실패</span>
-                                          ) : sales !== null ? (
-                                            `${sales.toLocaleString()}원`
+                                          ) : isSuccess || sales !== null ? (
+                                            `${(sales ?? 0).toLocaleString()}원`
                                           ) : (
-                                            <span className="text-gray-400">-</span>
+                                            <span className="text-gray-400">대기중</span>
                                           )}
                                         </td>
                                         <td className="px-4 py-2 text-sm text-right">
@@ -3330,8 +3332,8 @@ function AdminDashboard() {
                                         <td className="px-4 py-2 text-sm text-gray-500 text-right">
                                           {isLoading || isFailed ? (
                                             <span className="text-gray-400">-</span>
-                                          ) : orders !== null ? (
-                                            `${orders}건`
+                                          ) : isSuccess || orders !== null ? (
+                                            `${orders ?? 0}건`
                                           ) : (
                                             <span className="text-gray-400">-</span>
                                           )}
