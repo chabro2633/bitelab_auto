@@ -3759,7 +3759,7 @@ function AdminDashboard() {
       {/* 상품 옵션 상세 팝업 */}
       {selectedProduct && (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50" onClick={() => setSelectedProduct(null)}>
-          <div className="relative top-20 mx-auto p-5 border w-[450px] max-w-[90vw] shadow-lg rounded-lg bg-white" onClick={e => e.stopPropagation()}>
+          <div className="relative top-10 mx-auto p-6 border w-[600px] max-w-[95vw] shadow-lg rounded-lg bg-white" onClick={e => e.stopPropagation()}>
             <div className="flex justify-between items-start mb-4">
               <div>
                 <h3 className="text-lg font-semibold text-gray-900">{selectedProduct.name}</h3>
@@ -3787,15 +3787,15 @@ function AdminDashboard() {
             <div className="border-t pt-4">
               <h4 className="text-sm font-medium text-gray-700 mb-3">옵션별 판매 현황</h4>
               {selectedProduct.options && selectedProduct.options.length > 0 ? (
-                <div className="max-h-[300px] overflow-y-auto space-y-2">
+                <div className="max-h-[400px] overflow-y-auto space-y-2">
                   {selectedProduct.options.map((option, idx) => (
-                    <div key={idx} className="flex items-center justify-between p-2 bg-gray-50 rounded hover:bg-gray-100">
-                      <div className="flex-1 text-sm text-gray-800 truncate pr-2" title={option.optionValue}>
+                    <div key={idx} className="flex items-start justify-between p-3 bg-gray-50 rounded hover:bg-gray-100 gap-3">
+                      <div className="flex-1 text-sm text-gray-800 break-words leading-relaxed min-w-0">
                         {option.optionValue}
                       </div>
-                      <div className="flex items-center gap-4 text-sm">
+                      <div className="flex items-center gap-4 text-sm shrink-0">
                         <span className="text-blue-600 font-medium w-12 text-right">{option.quantity}개</span>
-                        <span className="text-green-600 font-medium w-20 text-right">{option.sales.toLocaleString()}원</span>
+                        <span className="text-green-600 font-medium w-24 text-right">{option.sales.toLocaleString()}원</span>
                       </div>
                     </div>
                   ))}
