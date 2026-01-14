@@ -696,14 +696,15 @@ function AdminDashboard() {
         }
 
         if (data.success) {
-          // 일자별 데이터 업데이트
+          // 일자별 데이터 업데이트 - 요청한 날짜를 키로 사용
           const dayData = data.dailySales?.[0];
-          if (dayData) {
-            dailySalesMap.set(dayData.date, { sales: dayData.sales, orders: dayData.orders });
-          } else {
-            // API에서 데이터가 없으면 0으로 설정
-            dailySalesMap.set(dateStr, { sales: 0, orders: 0 });
-          }
+          const sales = dayData?.sales ?? data.stats?.totalSales ?? 0;
+          const orders = dayData?.orders ?? data.stats?.validOrders ?? 0;
+
+          console.log(`[PeriodSales] ${dateStr}: API 응답 - sales=${sales}, orders=${orders}, dayData=`, dayData);
+
+          // 요청한 날짜를 키로 사용 (API 응답 날짜 형식과 무관하게)
+          dailySalesMap.set(dateStr, { sales, orders });
 
           // topProducts 합치기
           if (data.topProducts) {

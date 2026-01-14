@@ -191,48 +191,42 @@ async function fetchOrderPage(accessToken: string, startDate: string, endDate: s
   return data.orders || [];
 }
 
-// 단일 기간 주문 데이터 가져오기 (페이지네이션)
+// 단일 기간 주문 데이터 가져오기 (페이지네이션) - 순차적으로 변경하여 안정성 확보
 async function fetchOrdersForPeriod(accessToken: string, startDate: string, endDate: string) {
   const limit = 100;
   const allOrders: Array<Record<string, unknown>> = [];
   let currentOffset = 0;
   let hasMore = true;
+  let pageCount = 0;
+  const maxPages = 50; // 안전장치: 최대 5000건
 
-  while (hasMore) {
-    // 병렬로 10페이지씩 가져오기 (1000건씩)
-    const parallelBatch = 10;
-    const offsets = Array.from({ length: parallelBatch }, (_, i) => currentOffset + i * limit);
+  console.log(`[Cafe24] fetchOrdersForPeriod: ${startDate} ~ ${endDate} 시작`);
 
-    const pagePromises = offsets.map(offset =>
-      fetchOrderPage(accessToken, startDate, endDate, offset, limit).catch((err) => {
-        console.error(`[Cafe24] Failed to fetch page at offset ${offset}:`, err);
-        return [];
-      })
-    );
+  while (hasMore && pageCount < maxPages) {
+    try {
+      const orders = await fetchOrderPage(accessToken, startDate, endDate, currentOffset, limit);
+      pageCount++;
 
-    const pages = await Promise.all(pagePromises);
+      console.log(`[Cafe24] Page ${pageCount}: offset=${currentOffset}, got ${orders.length} orders`);
 
-    let fetchedInBatch = 0;
-    let lastPageFull = true;
-
-    for (const page of pages) {
-      if (page.length > 0) {
-        allOrders.push(...page);
-        fetchedInBatch += page.length;
+      if (orders.length > 0) {
+        allOrders.push(...orders);
       }
-      if (page.length < limit) {
-        lastPageFull = false;
-        break;
+
+      // 다음 페이지가 있는지 확인
+      if (orders.length < limit) {
+        hasMore = false;
+        console.log(`[Cafe24] Last page reached (got ${orders.length} < ${limit})`);
+      } else {
+        currentOffset += limit;
       }
-    }
-
-    currentOffset += parallelBatch * limit;
-
-    if (!lastPageFull || fetchedInBatch === 0) {
+    } catch (err) {
+      console.error(`[Cafe24] Failed to fetch page at offset ${currentOffset}:`, err);
       hasMore = false;
     }
   }
 
+  console.log(`[Cafe24] fetchOrdersForPeriod: ${startDate} ~ ${endDate} 완료, 총 ${allOrders.length}건`);
   return allOrders;
 }
 
