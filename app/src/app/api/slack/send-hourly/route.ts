@@ -183,16 +183,19 @@ export async function POST() {
 
   try {
     // 1. Cafe24 API에서 매출 데이터 조회
-    const baseUrl = process.env.VERCEL_URL
-      ? `https://${process.env.VERCEL_URL}`
-      : process.env.NEXTAUTH_URL || 'http://localhost:3005';
+    const baseUrl = 'https://app-bitelab.vercel.app';
+    const apiKey = process.env.CAFE24_API_KEY || '';
+
+    console.log('[Slack Send] Calling Cafe24 API:', { baseUrl, hasApiKey: !!apiKey });
 
     const cafe24Response = await fetch(`${baseUrl}/api/cafe24`, {
       headers: {
-        'X-API-Key': process.env.CAFE24_API_KEY || '',
+        'X-API-Key': apiKey,
         'Content-Type': 'application/json',
       },
     });
+
+    console.log('[Slack Send] Cafe24 response status:', cafe24Response.status);
 
     if (!cafe24Response.ok) {
       const errorText = await cafe24Response.text();
