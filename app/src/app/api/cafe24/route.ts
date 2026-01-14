@@ -487,9 +487,17 @@ function calculateTopProducts(orders: Array<Record<string, unknown>>, limit: num
     .slice(0, limit);
 }
 
-// 일자별 매출 계산
-function calculateDailySales(orders: Array<Record<string, unknown>>) {
+// 일자별 매출 계산 (조회 기간 내 모든 날짜 포함)
+function calculateDailySales(orders: Array<Record<string, unknown>>, startDate: string, endDate: string) {
   const dailyStats: Record<string, { date: string; sales: number; orders: number }> = {};
+
+  // 조회 기간 내 모든 날짜를 0으로 초기화
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+    const dateStr = d.toISOString().split('T')[0];
+    dailyStats[dateStr] = { date: dateStr, sales: 0, orders: 0 };
+  }
 
   for (const order of orders) {
     // 주문 날짜 추출 (YYYY-MM-DD)
@@ -506,11 +514,10 @@ function calculateDailySales(orders: Array<Record<string, unknown>>) {
 
     const amount = excludeVAT(getOrderTotalAmount(order));  // 부가세 제외
 
-    if (!dailyStats[orderDate]) {
-      dailyStats[orderDate] = { date: orderDate, sales: 0, orders: 0 };
+    if (dailyStats[orderDate]) {
+      dailyStats[orderDate].sales += amount;
+      dailyStats[orderDate].orders += 1;
     }
-    dailyStats[orderDate].sales += amount;
-    dailyStats[orderDate].orders += 1;
   }
 
   // 날짜순 정렬 (오래된순 - ASC)
@@ -662,7 +669,7 @@ export async function GET(request: NextRequest) {
     const topProducts = calculateTopProducts(orders, 5);
 
     // 일자별 매출 계산
-    const dailySales = calculateDailySales(orders);
+    const dailySales = calculateDailySales(orders, startDate, endDate);
 
     // 시간별 매출 계산
     const hourlySales = calculateHourlySales(orders);

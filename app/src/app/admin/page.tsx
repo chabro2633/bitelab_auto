@@ -206,7 +206,7 @@ function AdminDashboard() {
       cancelRefundOrders: number;
     };
     orderStatus: Array<{ status: string; label: string; count: number }>;
-    topProducts: Array<{ name: string; quantity: number; sales: number }>;
+    topProducts: Array<{ name: string; quantity: number; sales: number; options?: Array<{ optionValue: string; quantity: number; sales: number }> }>;
     dailySales?: Array<{ date: string; sales: number; orders: number }>;
     recentOrders: Array<{
       orderId: string;
@@ -233,7 +233,7 @@ function AdminDashboard() {
       validOrders: number;
       averageOrderValue: number;
     };
-    topProducts: Array<{ name: string; quantity: number; sales: number }>;
+    topProducts: Array<{ name: string; quantity: number; sales: number; options?: Array<{ optionValue: string; quantity: number; sales: number }> }>;
     dailySales?: Array<{ date: string; sales: number; orders: number }>;
   } | null>(null);
 
@@ -3352,7 +3352,11 @@ function AdminDashboard() {
                               const salesDiff = prevProduct ? product.sales - prevProduct.sales : null;
 
                               return (
-                                <div key={index} className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0">
+                                <div
+                                  key={index}
+                                  className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0 cursor-pointer hover:bg-purple-50 transition-colors rounded px-2 -mx-2"
+                                  onClick={() => setSelectedProduct({ ...product, isYesterday: false })}
+                                >
                                   <div className="flex items-center gap-3">
                                     <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
                                       index === 0 ? 'bg-yellow-400 text-white' :
