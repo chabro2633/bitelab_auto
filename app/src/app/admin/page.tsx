@@ -611,7 +611,10 @@ function AdminDashboard() {
     }
   }, [activeTab, realtimeInitialized]);
 
-  // 기간별 매출 데이터 가져오기 (10일씩 나눠서 순차 조회)
+  // 일자별 로딩 상태 (스트리밍용)
+  const [dailyLoadingStatus, setDailyLoadingStatus] = useState<Record<string, 'loading' | 'success' | 'failed'>>({});
+
+  // 기간별 매출 데이터 가져오기 (일자별 스트리밍 + 재시도)
   const fetchPeriodSales = async () => {
     if (!periodSalesStartDate || !periodSalesEndDate) {
       setPeriodSalesError('시작일과 종료일을 선택해주세요');
@@ -646,9 +649,35 @@ function AdminDashboard() {
       return `${year}-${month}-${day}`;
     };
 
-    // 10일씩 기간 분할
-    const chunkDays = 10;
-    const dateRanges: Array<{ start: string; end: string }> = [];
+    // 모든 날짜 목록 생성
+    const allDates: string[] = [];
+    for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+      allDates.push(formatDate(new Date(d)));
+    }
+
+    // 초기 로딩 상태 설정
+    const initialStatus: Record<string, 'loading' | 'success' | 'failed'> = {};
+    allDates.forEach(date => { initialStatus[date] = 'loading'; });
+    setDailyLoadingStatus(initialStatus);
+
+    // 초기 빈 데이터로 UI 표시
+    const initialDailySales = allDates.map(date => ({ date, sales: 0, orders: 0 }));
+    setPeriodSales({
+      success: true,
+      startDate: periodSalesStartDate,
+      endDate: periodSalesEndDate,
+      brandName: '바르너',
+      lastUpdated: new Date().toISOString(),
+      dailySales: initialDailySales,
+      stats: { totalSales: 0, totalOrders: 0, validOrders: 0, totalItems: 0, averageOrderValue: 0, pendingAmount: 0, pendingOrders: 0, cancelRefundAmount: 0, cancelRefundOrders: 0 },
+      orderStatus: [],
+      topProducts: [],
+      recentOrders: [],
+    });
+
+    // 3일씩 기간 분할 (더 작은 단위로)
+    const chunkDays = 3;
+    const dateRanges: Array<{ start: string; end: string; dates: string[] }> = [];
     let currentStart = new Date(startDate);
 
     while (currentStart <= endDate) {
@@ -656,9 +685,15 @@ function AdminDashboard() {
       chunkEnd.setDate(chunkEnd.getDate() + chunkDays - 1);
       const actualEnd = chunkEnd > endDate ? endDate : chunkEnd;
 
+      const chunkDates: string[] = [];
+      for (let d = new Date(currentStart); d <= actualEnd; d.setDate(d.getDate() + 1)) {
+        chunkDates.push(formatDate(new Date(d)));
+      }
+
       dateRanges.push({
         start: formatDate(currentStart),
-        end: formatDate(actualEnd)
+        end: formatDate(actualEnd),
+        dates: chunkDates
       });
 
       currentStart = new Date(actualEnd);
@@ -667,79 +702,124 @@ function AdminDashboard() {
 
     console.log('[PeriodSales] 기간 분할:', dateRanges.length, '개 구간');
 
-    try {
-      // 각 구간 순차 조회 및 데이터 합치기
-      const dailySalesMap = new Map<string, { sales: number; orders: number }>();
-      let totalCancelledSales = 0;
-      let totalCancelledOrders = 0;
-      let totalPendingOrders = 0;
-      let lastSuccessData: Record<string, unknown> | null = null;
+    // 데이터 저장용
+    const dailySalesMap = new Map<string, { sales: number; orders: number }>();
+    let lastSuccessData: Record<string, unknown> | null = null;
+    const allTopProducts: Array<{ name: string; quantity: number; sales: number; options?: Array<{ optionValue: string; quantity: number; sales: number }> }> = [];
 
-      for (let i = 0; i < dateRanges.length; i++) {
-        const range = dateRanges[i];
-        console.log(`[PeriodSales] ${i + 1}/${dateRanges.length} 조회 중: ${range.start} ~ ${range.end}`);
+    // 단일 구간 조회 함수 (재시도 포함)
+    const fetchRange = async (range: { start: string; end: string; dates: string[] }, attempt: number = 1): Promise<boolean> => {
+      const maxRetries = 3;
+      try {
+        const response = await fetch(`/api/cafe24?startDate=${range.start}&endDate=${range.end}`);
+        const data = await response.json();
 
-        try {
-          const response = await fetch(`/api/cafe24?startDate=${range.start}&endDate=${range.end}`);
-          const data = await response.json();
+        if (data.needsAuth) {
+          setCafe24NeedsAuth(true);
+          setCafe24AuthUrl(data.authUrl);
+          setPeriodSalesError(data.error || 'Cafe24 인증이 필요합니다');
+          return false;
+        }
 
-          if (data.needsAuth) {
-            setCafe24NeedsAuth(true);
-            setCafe24AuthUrl(data.authUrl);
-            setPeriodSalesError(data.error || 'Cafe24 인증이 필요합니다');
-            setPeriodSalesLoading(false);
-            return;
+        if (data.success) {
+          lastSuccessData = data;
+
+          // 일자별 데이터 업데이트
+          data.dailySales?.forEach((day: { date: string; sales: number; orders: number }) => {
+            dailySalesMap.set(day.date, { sales: day.sales, orders: day.orders });
+          });
+
+          // topProducts 합치기
+          if (data.topProducts) {
+            allTopProducts.push(...data.topProducts);
           }
 
-          if (data.success) {
-            lastSuccessData = data;
-            data.dailySales?.forEach((day: { date: string; sales: number; orders: number }) => {
-              const existing = dailySalesMap.get(day.date);
+          // 상태 업데이트
+          setDailyLoadingStatus(prev => {
+            const updated = { ...prev };
+            range.dates.forEach(date => { updated[date] = 'success'; });
+            return updated;
+          });
+
+          // 실시간 UI 업데이트
+          setPeriodSales(prev => {
+            if (!prev) return prev;
+            const updatedDailySales = prev.dailySales?.map(day => {
+              const newData = dailySalesMap.get(day.date);
+              return newData ? { ...day, ...newData } : day;
+            }) || [];
+
+            const totalSales = updatedDailySales.reduce((sum, d) => sum + d.sales, 0);
+            const totalOrders = updatedDailySales.reduce((sum, d) => sum + d.orders, 0);
+
+            // topProducts 합계 계산
+            const productMap = new Map<string, { name: string; quantity: number; sales: number; options: Array<{ optionValue: string; quantity: number; sales: number }> }>();
+            allTopProducts.forEach(p => {
+              const existing = productMap.get(p.name);
               if (existing) {
-                // 기존 값에 추가 (중복 방지)
-                dailySalesMap.set(day.date, {
-                  sales: Math.max(existing.sales, day.sales),
-                  orders: Math.max(existing.orders, day.orders)
+                existing.quantity += p.quantity;
+                existing.sales += p.sales;
+                // 옵션 합치기
+                p.options?.forEach(opt => {
+                  const existingOpt = existing.options.find(o => o.optionValue === opt.optionValue);
+                  if (existingOpt) {
+                    existingOpt.quantity += opt.quantity;
+                    existingOpt.sales += opt.sales;
+                  } else {
+                    existing.options.push({ ...opt });
+                  }
                 });
               } else {
-                dailySalesMap.set(day.date, { sales: day.sales, orders: day.orders });
+                productMap.set(p.name, { name: p.name, quantity: p.quantity, sales: p.sales, options: [...(p.options || [])] });
               }
             });
-            totalCancelledSales += data.cancelledSales || 0;
-            totalCancelledOrders += data.cancelledOrders || 0;
-            totalPendingOrders += data.pendingOrders || 0;
-            console.log(`[PeriodSales] ${range.start}~${range.end}: ${data.dailySales?.length || 0}일 데이터`);
-          }
-        } catch (rangeError) {
-          console.error(`[PeriodSales] ${range.start}~${range.end} 조회 실패:`, rangeError);
+            const mergedTopProducts = Array.from(productMap.values())
+              .sort((a, b) => b.sales - a.sales)
+              .slice(0, 5);
+
+            return {
+              ...prev,
+              dailySales: updatedDailySales,
+              stats: {
+                ...prev.stats,
+                totalSales,
+                totalOrders,
+                validOrders: totalOrders,
+              },
+              topProducts: mergedTopProducts,
+              orderStatus: data.orderStatus || prev.orderStatus,
+              lastUpdated: new Date().toISOString(),
+            };
+          });
+
+          console.log(`[PeriodSales] ${range.start}~${range.end}: 성공`);
+          return true;
         }
+        throw new Error('API returned success: false');
+      } catch (err) {
+        console.error(`[PeriodSales] ${range.start}~${range.end} 시도 ${attempt} 실패:`, err);
+
+        if (attempt < maxRetries) {
+          // 1초 대기 후 재시도
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          return fetchRange(range, attempt + 1);
+        }
+
+        // 최종 실패
+        setDailyLoadingStatus(prev => {
+          const updated = { ...prev };
+          range.dates.forEach(date => { updated[date] = 'failed'; });
+          return updated;
+        });
+        return false;
       }
+    };
 
-      // 최종 데이터 정리
-      const finalDailySales = Array.from(dailySalesMap.entries())
-        .map(([date, data]) => ({ date, ...data }))
-        .sort((a, b) => a.date.localeCompare(b.date));
-
-      const totalSales = finalDailySales.reduce((sum, day) => sum + day.sales, 0);
-      const totalOrders = finalDailySales.reduce((sum, day) => sum + day.orders, 0);
-
-      console.log('[PeriodSales] 최종 결과 - 일수:', finalDailySales.length, '총 매출:', totalSales.toLocaleString());
-
-      const finalData = {
-        success: true,
-        startDate: periodSalesStartDate,
-        endDate: periodSalesEndDate,
-        lastUpdated: new Date().toISOString(),
-        dailySales: finalDailySales,
-        totalSales,
-        totalOrders,
-        cancelledSales: totalCancelledSales,
-        cancelledOrders: totalCancelledOrders,
-        pendingOrders: totalPendingOrders,
-        ...(lastSuccessData || {})
-      };
-
-      setPeriodSales(finalData);
+    try {
+      // 순차적으로 각 구간 조회 (병렬 시 API 부하 방지)
+      for (const range of dateRanges) {
+        await fetchRange(range);
+      }
 
       // 비교 기능이 활성화되어 있으면 이전 동일 기간 데이터도 가져오기
       if (compareEnabled) {
@@ -3204,6 +3284,11 @@ function AdminDashboard() {
                                     const prevDateStr = index > 0 ? allDates[index - 1] : null;
                                     const prevDayData = prevDateStr ? salesMap.get(prevDateStr) : null;
 
+                                    // 로딩 상태 확인
+                                    const loadingStatus = dailyLoadingStatus[dateStr];
+                                    const isLoading = loadingStatus === 'loading';
+                                    const isFailed = loadingStatus === 'failed';
+
                                     const sales = dayData?.sales ?? null;
                                     const orders = dayData?.orders ?? null;
                                     const diff = sales !== null && prevDayData ? sales - prevDayData.sales : null;
@@ -3212,14 +3297,28 @@ function AdminDashboard() {
                                       : null;
 
                                     return (
-                                      <tr key={dateStr} className={`hover:bg-gray-50 ${isWeekend ? 'bg-blue-50/30' : ''} ${isFuture ? 'opacity-50' : ''}`}>
-                                        <td className="px-4 py-2 text-sm text-gray-900">{dateStr}</td>
+                                      <tr key={dateStr} className={`hover:bg-gray-50 ${isWeekend ? 'bg-blue-50/30' : ''} ${isFuture ? 'opacity-50' : ''} ${isFailed ? 'bg-red-50/30' : ''}`}>
+                                        <td className="px-4 py-2 text-sm text-gray-900">
+                                          {dateStr}
+                                          {isLoading && <span className="ml-2 inline-block w-3 h-3 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></span>}
+                                          {isFailed && <span className="ml-2 text-red-500 text-xs">실패</span>}
+                                        </td>
                                         <td className={`px-4 py-2 text-sm ${isWeekend ? 'text-blue-600 font-medium' : 'text-gray-500'}`}>{dayOfWeek}</td>
                                         <td className="px-4 py-2 text-sm text-gray-900 text-right font-medium">
-                                          {sales !== null ? `${sales.toLocaleString()}원` : <span className="text-gray-400">-</span>}
+                                          {isLoading ? (
+                                            <span className="text-blue-500">로딩중...</span>
+                                          ) : isFailed ? (
+                                            <span className="text-red-500">조회 실패</span>
+                                          ) : sales !== null ? (
+                                            `${sales.toLocaleString()}원`
+                                          ) : (
+                                            <span className="text-gray-400">-</span>
+                                          )}
                                         </td>
                                         <td className="px-4 py-2 text-sm text-right">
-                                          {diff !== null ? (
+                                          {isLoading || isFailed ? (
+                                            <span className="text-gray-400">-</span>
+                                          ) : diff !== null ? (
                                             <span className={diff >= 0 ? 'text-green-600' : 'text-red-600'}>
                                               {diff >= 0 ? '▲' : '▼'} {Math.abs(diff).toLocaleString()}원
                                               <span className="text-xs ml-1">({diff >= 0 ? '+' : ''}{diffPercent}%)</span>
@@ -3229,7 +3328,13 @@ function AdminDashboard() {
                                           )}
                                         </td>
                                         <td className="px-4 py-2 text-sm text-gray-500 text-right">
-                                          {orders !== null ? `${orders}건` : <span className="text-gray-400">-</span>}
+                                          {isLoading || isFailed ? (
+                                            <span className="text-gray-400">-</span>
+                                          ) : orders !== null ? (
+                                            `${orders}건`
+                                          ) : (
+                                            <span className="text-gray-400">-</span>
+                                          )}
                                         </td>
                                       </tr>
                                     );
