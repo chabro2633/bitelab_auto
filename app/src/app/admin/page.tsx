@@ -145,8 +145,8 @@ function AdminDashboard() {
       cancelRefundOrders: number;
     };
     orderStatus: Array<{ status: string; label: string; count: number }>;
-    topProducts: Array<{ name: string; quantity: number; sales: number }>;
-    yesterdayTopProducts?: Array<{ name: string; quantity: number; sales: number }>;
+    topProducts: Array<{ name: string; quantity: number; sales: number; options?: Array<{ optionValue: string; quantity: number; sales: number }> }>;
+    yesterdayTopProducts?: Array<{ name: string; quantity: number; sales: number; options?: Array<{ optionValue: string; quantity: number; sales: number }> }>;
     hourlySales: Array<{ hour: number; sales: number; orders: number }>;
     yesterdayHourlySales?: Array<{ hour: number; sales: number; orders: number }>;
     yesterdayStats?: { totalSales: number; totalOrders: number };
@@ -176,6 +176,15 @@ function AdminDashboard() {
   const [cafe24AuthUrl, setCafe24AuthUrl] = useState<string | null>(null);
   const [slackSending, setSlackSending] = useState(false);
   const [slackSendResult, setSlackSendResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  // 상품 옵션 팝업용 state
+  const [selectedProduct, setSelectedProduct] = useState<{
+    name: string;
+    quantity: number;
+    sales: number;
+    options?: Array<{ optionValue: string; quantity: number; sales: number }>;
+    isYesterday?: boolean;
+  } | null>(null);
 
   // 기간별 매출 탭용 state
   const [periodSalesStartDate, setPeriodSalesStartDate] = useState('');
@@ -2684,7 +2693,11 @@ function AdminDashboard() {
                             </div>
                             <div className="divide-y divide-gray-100">
                               {realtimeSales.topProducts.map((product, index) => (
-                                <div key={product.name} className="px-4 py-2 hover:bg-gray-50 flex items-center justify-between">
+                                <div
+                                  key={product.name}
+                                  className="px-4 py-2 hover:bg-green-50 flex items-center justify-between cursor-pointer transition-colors"
+                                  onClick={() => setSelectedProduct({ ...product, isYesterday: false })}
+                                >
                                   <div className="flex items-center gap-2">
                                     <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
                                       index === 0 ? 'bg-yellow-400 text-yellow-900' :
@@ -2716,7 +2729,11 @@ function AdminDashboard() {
                             </div>
                             <div className="divide-y divide-gray-100">
                               {realtimeSales.yesterdayTopProducts.map((product, index) => (
-                                <div key={product.name} className="px-4 py-2 hover:bg-gray-50 flex items-center justify-between">
+                                <div
+                                  key={product.name}
+                                  className="px-4 py-2 hover:bg-gray-100 flex items-center justify-between cursor-pointer transition-colors"
+                                  onClick={() => setSelectedProduct({ ...product, isYesterday: true })}
+                                >
                                   <div className="flex items-center gap-2">
                                     <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
                                       index === 0 ? 'bg-yellow-200 text-yellow-800' :
@@ -3627,6 +3644,58 @@ function AdminDashboard() {
           </div>
         </div>
       </main>
+
+      {/* 상품 옵션 상세 팝업 */}
+      {selectedProduct && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50" onClick={() => setSelectedProduct(null)}>
+          <div className="relative top-20 mx-auto p-5 border w-[450px] max-w-[90vw] shadow-lg rounded-lg bg-white" onClick={e => e.stopPropagation()}>
+            <div className="flex justify-between items-start mb-4">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">{selectedProduct.name}</h3>
+                <p className="text-sm text-gray-500">{selectedProduct.isYesterday ? '어제' : '오늘'} 판매 현황</p>
+              </div>
+              <button
+                onClick={() => setSelectedProduct(null)}
+                className="text-gray-400 hover:text-gray-600 text-xl font-bold"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="flex gap-4 mb-4 p-3 bg-gray-50 rounded-lg">
+              <div className="flex-1 text-center">
+                <div className="text-sm text-gray-500">총 판매량</div>
+                <div className="text-xl font-bold text-blue-600">{selectedProduct.quantity}개</div>
+              </div>
+              <div className="flex-1 text-center border-l border-gray-200">
+                <div className="text-sm text-gray-500">총 매출</div>
+                <div className="text-xl font-bold text-green-600">{selectedProduct.sales.toLocaleString()}원</div>
+              </div>
+            </div>
+
+            <div className="border-t pt-4">
+              <h4 className="text-sm font-medium text-gray-700 mb-3">옵션별 판매 현황</h4>
+              {selectedProduct.options && selectedProduct.options.length > 0 ? (
+                <div className="max-h-[300px] overflow-y-auto space-y-2">
+                  {selectedProduct.options.map((option, idx) => (
+                    <div key={idx} className="flex items-center justify-between p-2 bg-gray-50 rounded hover:bg-gray-100">
+                      <div className="flex-1 text-sm text-gray-800 truncate pr-2" title={option.optionValue}>
+                        {option.optionValue}
+                      </div>
+                      <div className="flex items-center gap-4 text-sm">
+                        <span className="text-blue-600 font-medium w-12 text-right">{option.quantity}개</span>
+                        <span className="text-green-600 font-medium w-20 text-right">{option.sales.toLocaleString()}원</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-sm text-gray-400 text-center py-4">옵션 정보가 없습니다</div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 비밀번호 변경 모달 */}
       {showPasswordModal && (

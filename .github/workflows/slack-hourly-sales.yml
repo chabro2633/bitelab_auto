@@ -1,9 +1,9 @@
 name: Hourly Sales Slack Notification
 
 on:
-  # 매 시간 정각에 실행 (UTC 기준)
-  schedule:
-    - cron: '0 * * * *'
+  # 스케줄 비활성화 (KV 토큰 이슈 해결 전까지)
+  # schedule:
+  #   - cron: '0 * * * *'
 
   # 수동 실행 가능
   workflow_dispatch:

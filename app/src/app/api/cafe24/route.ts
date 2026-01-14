@@ -428,9 +428,14 @@ function calculateOrderStats(orders: Array<Record<string, unknown>>) {
   };
 }
 
-// 탑 상품 계산 (매출/판매수량 기준)
+// 탑 상품 계산 (매출/판매수량 기준) - 옵션별 상세 정보 포함
 function calculateTopProducts(orders: Array<Record<string, unknown>>, limit: number = 5) {
-  const productStats: Record<string, { name: string; quantity: number; sales: number }> = {};
+  const productStats: Record<string, {
+    name: string;
+    quantity: number;
+    sales: number;
+    options: Record<string, { optionValue: string; quantity: number; sales: number }>;
+  }> = {};
 
   for (const order of orders) {
     const items = order.items as Array<{
@@ -438,6 +443,7 @@ function calculateTopProducts(orders: Array<Record<string, unknown>>, limit: num
       product_name?: string;
       quantity?: number;
       product_price?: string;
+      option_value?: string;
     }> | undefined;
 
     if (items) {
@@ -451,18 +457,32 @@ function calculateTopProducts(orders: Array<Record<string, unknown>>, limit: num
         const quantity = item.quantity || 1;
         const price = parseFloat(item.product_price || '0');
         const sales = excludeVAT(Math.round(price * quantity));  // 부가세 제외
+        const optionValue = item.option_value || '기본';
 
         if (!productStats[name]) {
-          productStats[name] = { name, quantity: 0, sales: 0 };
+          productStats[name] = { name, quantity: 0, sales: 0, options: {} };
         }
         productStats[name].quantity += quantity;
         productStats[name].sales += sales;
+
+        // 옵션별 집계
+        if (!productStats[name].options[optionValue]) {
+          productStats[name].options[optionValue] = { optionValue, quantity: 0, sales: 0 };
+        }
+        productStats[name].options[optionValue].quantity += quantity;
+        productStats[name].options[optionValue].sales += sales;
       }
     }
   }
 
   // 매출 기준으로 정렬하고 상위 N개 반환
   return Object.values(productStats)
+    .map(p => ({
+      name: p.name,
+      quantity: p.quantity,
+      sales: p.sales,
+      options: Object.values(p.options).sort((a, b) => b.quantity - a.quantity),
+    }))
     .sort((a, b) => b.sales - a.sales)
     .slice(0, limit);
 }
