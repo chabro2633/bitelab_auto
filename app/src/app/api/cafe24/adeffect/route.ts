@@ -184,6 +184,7 @@ async function fetchProductsView(
   url.searchParams.set('order', 'desc');
 
   console.log('[ProductConversion] Fetching Products View:', url.toString());
+  console.log('[ProductConversion] Token prefix:', accessToken?.substring(0, 20) + '...');
 
   const response = await fetch(url.toString(), {
     headers: {
@@ -192,13 +193,23 @@ async function fetchProductsView(
     },
   });
 
+  const responseText = await response.text();
+  console.log('[ProductConversion] Products View Response:', response.status, responseText.substring(0, 500));
+
   if (!response.ok) {
-    const errorText = await response.text();
-    console.error('[ProductConversion] Products View API Error:', response.status, errorText);
-    throw new Error(`Products View API Error: ${response.status} - ${errorText}`);
+    console.error('[ProductConversion] Products View API Error:', response.status, responseText);
+    throw new Error(`Products View API Error: ${response.status} - ${responseText}`);
   }
 
-  const data: ProductViewResponse = await response.json();
+  let data: ProductViewResponse;
+  try {
+    data = JSON.parse(responseText);
+  } catch {
+    console.error('[ProductConversion] Failed to parse Products View response');
+    return [];
+  }
+
+  console.log('[ProductConversion] Products View data count:', Array.isArray(data.resource) ? data.resource.length : (data.resource ? 1 : 0));
 
   if (Array.isArray(data.resource)) {
     return data.resource;
@@ -233,13 +244,23 @@ async function fetchProductsSales(
     },
   });
 
+  const responseText = await response.text();
+  console.log('[ProductConversion] Products Sales Response:', response.status, responseText.substring(0, 500));
+
   if (!response.ok) {
-    const errorText = await response.text();
-    console.error('[ProductConversion] Products Sales API Error:', response.status, errorText);
-    throw new Error(`Products Sales API Error: ${response.status} - ${errorText}`);
+    console.error('[ProductConversion] Products Sales API Error:', response.status, responseText);
+    throw new Error(`Products Sales API Error: ${response.status} - ${responseText}`);
   }
 
-  const data: ProductSalesResponse = await response.json();
+  let data: ProductSalesResponse;
+  try {
+    data = JSON.parse(responseText);
+  } catch {
+    console.error('[ProductConversion] Failed to parse Products Sales response');
+    return [];
+  }
+
+  console.log('[ProductConversion] Products Sales data count:', Array.isArray(data.resource) ? data.resource.length : (data.resource ? 1 : 0));
 
   if (Array.isArray(data.resource)) {
     return data.resource;

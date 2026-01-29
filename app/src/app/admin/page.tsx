@@ -3894,7 +3894,7 @@ function AdminDashboard() {
                           type="date"
                           value={adEffectStartDate}
                           onChange={(e) => setAdEffectStartDate(e.target.value)}
-                          className="px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-teal-500 focus:border-teal-500"
+                          className="px-3 py-2 bg-white border-2 border-gray-400 rounded-md shadow-sm focus:outline-none focus:ring-teal-500 focus:border-teal-500 text-gray-900"
                         />
                       </div>
                       <div>
@@ -3903,7 +3903,7 @@ function AdminDashboard() {
                           type="date"
                           value={adEffectEndDate}
                           onChange={(e) => setAdEffectEndDate(e.target.value)}
-                          className="px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-teal-500 focus:border-teal-500"
+                          className="px-3 py-2 bg-white border-2 border-gray-400 rounded-md shadow-sm focus:outline-none focus:ring-teal-500 focus:border-teal-500 text-gray-900"
                         />
                       </div>
                       <button
@@ -3919,37 +3919,37 @@ function AdminDashboard() {
                     <div className="flex flex-wrap gap-2">
                       <button
                         onClick={() => setAdEffectQuickDate('today')}
-                        className="px-3 py-1 text-sm bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200"
+                        className="px-3 py-1.5 text-sm bg-teal-50 text-teal-700 border border-teal-300 rounded-md hover:bg-teal-100 font-medium"
                       >
                         오늘
                       </button>
                       <button
                         onClick={() => setAdEffectQuickDate('yesterday')}
-                        className="px-3 py-1 text-sm bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200"
+                        className="px-3 py-1.5 text-sm bg-teal-50 text-teal-700 border border-teal-300 rounded-md hover:bg-teal-100 font-medium"
                       >
                         어제
                       </button>
                       <button
                         onClick={() => setAdEffectQuickDate('thisWeek')}
-                        className="px-3 py-1 text-sm bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200"
+                        className="px-3 py-1.5 text-sm bg-teal-50 text-teal-700 border border-teal-300 rounded-md hover:bg-teal-100 font-medium"
                       >
                         이번 주
                       </button>
                       <button
                         onClick={() => setAdEffectQuickDate('lastWeek')}
-                        className="px-3 py-1 text-sm bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200"
+                        className="px-3 py-1.5 text-sm bg-teal-50 text-teal-700 border border-teal-300 rounded-md hover:bg-teal-100 font-medium"
                       >
                         지난 주
                       </button>
                       <button
                         onClick={() => setAdEffectQuickDate('thisMonth')}
-                        className="px-3 py-1 text-sm bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200"
+                        className="px-3 py-1.5 text-sm bg-teal-50 text-teal-700 border border-teal-300 rounded-md hover:bg-teal-100 font-medium"
                       >
                         이번 달
                       </button>
                       <button
                         onClick={() => setAdEffectQuickDate('lastMonth')}
-                        className="px-3 py-1 text-sm bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200"
+                        className="px-3 py-1.5 text-sm bg-teal-50 text-teal-700 border border-teal-300 rounded-md hover:bg-teal-100 font-medium"
                       >
                         지난 달
                       </button>
@@ -4014,7 +4014,7 @@ function AdminDashboard() {
                         <select
                           value={adEffectSort}
                           onChange={(e) => setAdEffectSort(e.target.value as typeof adEffectSort)}
-                          className="px-3 py-1 border border-gray-300 rounded-md text-sm"
+                          className="px-3 py-2 bg-white border-2 border-gray-400 rounded-md text-sm text-gray-900 focus:outline-none focus:ring-teal-500 focus:border-teal-500"
                         >
                           <option value="order_amount">매출</option>
                           <option value="order_count">주문수</option>
@@ -4024,7 +4024,7 @@ function AdminDashboard() {
                         <select
                           value={adEffectSortOrder}
                           onChange={(e) => setAdEffectSortOrder(e.target.value as 'asc' | 'desc')}
-                          className="px-3 py-1 border border-gray-300 rounded-md text-sm"
+                          className="px-3 py-2 bg-white border-2 border-gray-400 rounded-md text-sm text-gray-900 focus:outline-none focus:ring-teal-500 focus:border-teal-500"
                         >
                           <option value="desc">내림차순</option>
                           <option value="asc">오름차순</option>
