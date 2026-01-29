@@ -356,9 +356,21 @@ def extract_all_pages_data(page, selected_date, brand_name, retry_for_columns=3)
         pagination_div = page.query_selector('div.w-20.flex.justify-between.items-center')
         svgs = pagination_div.query_selector_all('svg') if pagination_div else []
         if len(svgs) >= 3:
+            # 로딩 오버레이(greyout)가 사라질 때까지 대기
+            try:
+                page.wait_for_selector('div.greyout', state='hidden', timeout=10000)
+            except Exception:
+                pass  # 오버레이가 없으면 무시
+
             svgs[2].click()
-            # 고정 대기 대신 테이블 요소가 업데이트될 때까지 대기
-            page.wait_for_timeout(500)
+
+            # 클릭 후 로딩 오버레이가 사라질 때까지 대기
+            try:
+                page.wait_for_selector('div.greyout', state='hidden', timeout=15000)
+            except Exception:
+                pass
+
+            page.wait_for_timeout(1000)  # 추가 렌더링 대기
         else:
             break
 

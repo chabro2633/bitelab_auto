@@ -171,7 +171,7 @@ function AdminDashboard() {
   const [realtimeLoading, setRealtimeLoading] = useState(false);
   const [realtimeError, setRealtimeError] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(false);
-  const [autoRefreshInterval, setAutoRefreshInterval] = useState<NodeJS.Timeout | null>(null);
+  const autoRefreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const [cafe24NeedsAuth, setCafe24NeedsAuth] = useState(false);
   const [cafe24AuthUrl, setCafe24AuthUrl] = useState<string | null>(null);
   const [slackSending, setSlackSending] = useState(false);
@@ -310,11 +310,12 @@ function AdminDashboard() {
         clearInterval(pollingIntervalRef.current);
         pollingIntervalRef.current = null;
       }
-      if (autoRefreshInterval) {
-        clearInterval(autoRefreshInterval);
+      if (autoRefreshIntervalRef.current) {
+        clearInterval(autoRefreshIntervalRef.current);
+        autoRefreshIntervalRef.current = null;
       }
     };
-  }, [autoRefreshInterval]);
+  }, []);
 
   // 컴포넌트 마운트 시 실행 로그 가져오기
   useEffect(() => {
@@ -826,9 +827,9 @@ function AdminDashboard() {
   // 자동 새로고침 토글
   const toggleAutoRefresh = () => {
     if (autoRefresh) {
-      if (autoRefreshInterval) {
-        clearInterval(autoRefreshInterval);
-        setAutoRefreshInterval(null);
+      if (autoRefreshIntervalRef.current) {
+        clearInterval(autoRefreshIntervalRef.current);
+        autoRefreshIntervalRef.current = null;
       }
       setAutoRefresh(false);
     } else {
@@ -836,7 +837,7 @@ function AdminDashboard() {
       const interval = setInterval(() => {
         fetchRealtimeSales();
       }, 60000); // 1분마다 새로고침
-      setAutoRefreshInterval(interval);
+      autoRefreshIntervalRef.current = interval;
     }
   };
 
@@ -1646,30 +1647,6 @@ function AdminDashboard() {
         <div className="px-4 sm:px-0 mb-4">
           <div className="border-b border-gray-200">
             <nav className="-mb-px flex space-x-8">
-              {canAccessTab('sales') && (
-                <button
-                  onClick={() => handleTabChange('sales')}
-                  className={`py-4 px-1 border-b-2 font-medium text-sm ${
-                    activeTab === 'sales'
-                      ? 'border-indigo-500 text-indigo-600'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                  }`}
-                >
-                  판매 데이터 스크래핑
-                </button>
-              )}
-              {canAccessTab('ads') && (
-                <button
-                  onClick={() => handleTabChange('ads')}
-                  className={`py-4 px-1 border-b-2 font-medium text-sm ${
-                    activeTab === 'ads'
-                      ? 'border-orange-500 text-orange-600'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                  }`}
-                >
-                  광고 데이터 스크래핑
-                </button>
-              )}
               {canAccessTab('realtime') && (
                 <button
                   onClick={() => handleTabChange('realtime')}
@@ -1692,6 +1669,30 @@ function AdminDashboard() {
                   }`}
                 >
                   기간별 매출 (바르너)
+                </button>
+              )}
+              {canAccessTab('sales') && (
+                <button
+                  onClick={() => handleTabChange('sales')}
+                  className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                    activeTab === 'sales'
+                      ? 'border-indigo-500 text-indigo-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  }`}
+                >
+                  판매 데이터 스크래핑
+                </button>
+              )}
+              {canAccessTab('ads') && (
+                <button
+                  onClick={() => handleTabChange('ads')}
+                  className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                    activeTab === 'ads'
+                      ? 'border-orange-500 text-orange-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  }`}
+                >
+                  광고 데이터 스크래핑
                 </button>
               )}
               {canAccessTab('meta-ads') && (

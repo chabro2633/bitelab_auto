@@ -290,9 +290,22 @@ def extract_all_pages_data(page, selected_date):
         # -----------------------------
         # 4) 다음 페이지로 이동
         # -----------------------------
+        # 로딩 오버레이(greyout)가 사라질 때까지 대기
+        try:
+            page.wait_for_selector('div.greyout', state='hidden', timeout=10000)
+        except Exception:
+            pass  # 오버레이가 없으면 무시
+
         next_btn.click()
         print("➡️  Next 페이지 이동")
-        page.wait_for_timeout(1200)  # 페이지 렌더링 대기
+
+        # 클릭 후 로딩 오버레이가 사라질 때까지 대기
+        try:
+            page.wait_for_selector('div.greyout', state='hidden', timeout=15000)
+        except Exception:
+            pass
+
+        page.wait_for_timeout(1200)  # 추가 렌더링 대기
 
     # -----------------------------
     # 5) DataFrame 생성
