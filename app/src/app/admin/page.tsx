@@ -603,14 +603,34 @@ function AdminDashboard() {
     }
   };
 
-  // 실시간 탭으로 이동 시 한 번만 조회 (자동 반복 없음)
+  // 실시간 탭으로 이동 시 데이터 조회 및 자동 새로고침 활성화
   const [realtimeInitialized, setRealtimeInitialized] = useState(false);
   useEffect(() => {
-    if (activeTab === 'realtime' && !realtimeInitialized) {
-      setRealtimeInitialized(true);
-      fetchRealtimeSales();
+    if (activeTab === 'realtime') {
+      // 최초 진입 시 데이터 조회
+      if (!realtimeInitialized) {
+        setRealtimeInitialized(true);
+        fetchRealtimeSales();
+      }
+      // 자동 새로고침 활성화 (아직 활성화되지 않은 경우에만)
+      if (!autoRefresh && !autoRefreshIntervalRef.current) {
+        setAutoRefresh(true);
+        const interval = setInterval(() => {
+          fetchRealtimeSales();
+        }, 60000); // 1분마다 새로고침
+        autoRefreshIntervalRef.current = interval;
+      }
+    } else {
+      // 다른 탭으로 이동 시 자동 새로고침 비활성화
+      if (autoRefresh) {
+        if (autoRefreshIntervalRef.current) {
+          clearInterval(autoRefreshIntervalRef.current);
+          autoRefreshIntervalRef.current = null;
+        }
+        setAutoRefresh(false);
+      }
     }
-  }, [activeTab, realtimeInitialized]);
+  }, [activeTab, realtimeInitialized, autoRefresh]);
 
   // 일자별 로딩 상태 (스트리밍용)
   const [dailyLoadingStatus, setDailyLoadingStatus] = useState<Record<string, 'loading' | 'success' | 'failed'>>({});
