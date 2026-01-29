@@ -248,7 +248,7 @@ function AdminDashboard() {
     items: Array<{ url: string; type: 'image' | 'video'; width?: number; height?: number }>;
   } | null>(null);
 
-  // 광고 효과 탭용 state
+  // 제품별 전환율 분석 탭용 state
   const [adEffectStartDate, setAdEffectStartDate] = useState('');
   const [adEffectEndDate, setAdEffectEndDate] = useState('');
   const [adEffectLoading, setAdEffectLoading] = useState(false);
@@ -258,24 +258,23 @@ function AdminDashboard() {
     startDate: string;
     endDate: string;
     data: Array<{
-      ad: string;
-      keyword: string;
-      visit_count: number;
-      visit_rate: number;
-      purchase_count: number;
-      purchase_rate: number;
+      product_no: number;
+      product_name: string;
+      view_count: number;
+      order_count: number;
+      order_product_count: number;
       order_amount: number;
-      order_amount_per_visitor: number;
-      order_amount_per_buyer: number;
+      conversion_rate: number;
     }>;
     summary: {
-      totalVisits: number;
-      totalPurchases: number;
+      totalViews: number;
+      totalOrders: number;
+      totalProductsSold: number;
       totalRevenue: number;
       avgConversionRate: number;
     };
   } | null>(null);
-  const [adEffectSort, setAdEffectSort] = useState<'visit_count' | 'purchase_count' | 'order_amount' | 'purchase_rate'>('order_amount');
+  const [adEffectSort, setAdEffectSort] = useState<'view_count' | 'order_count' | 'order_amount' | 'conversion_rate'>('order_amount');
   const [adEffectSortOrder, setAdEffectSortOrder] = useState<'asc' | 'desc'>('desc');
 
   // Refs (must be at the top level)
@@ -1066,7 +1065,7 @@ function AdminDashboard() {
       }
     } catch (error) {
       console.error('Ad Effect fetch error:', error);
-      setAdEffectError('광고 효과 데이터를 불러오는 중 오류가 발생했습니다.');
+      setAdEffectError('제품별 전환율 데이터를 불러오는 중 오류가 발생했습니다.');
     } finally {
       setAdEffectLoading(false);
     }
@@ -1855,7 +1854,7 @@ function AdminDashboard() {
                       : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                   }`}
                 >
-                  광고 효과 분석
+                  제품별 전환율
                 </button>
               )}
             </nav>
@@ -3881,10 +3880,10 @@ function AdminDashboard() {
                 </>
               )}
 
-              {/* 광고 효과 분석 탭 */}
+              {/* 제품별 전환율 분석 탭 */}
               {activeTab === 'ad-effect' && (
                 <>
-                  <h2 className="text-lg font-medium text-gray-900 mb-4">광고 효과 분석 (바르너)</h2>
+                  <h2 className="text-lg font-medium text-gray-900 mb-4">제품별 전환율 분석 (바르너)</h2>
 
                   {/* 날짜 선택 */}
                   <div className="mb-6">
@@ -3976,17 +3975,23 @@ function AdminDashboard() {
                   {adEffectData && !adEffectLoading && (
                     <>
                       {/* 요약 카드 */}
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                      <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
                         <div className="bg-gradient-to-br from-teal-50 to-teal-100 rounded-lg p-4">
-                          <div className="text-sm text-teal-600 font-medium">총 방문수</div>
+                          <div className="text-sm text-teal-600 font-medium">총 조회수</div>
                           <div className="text-2xl font-bold text-teal-800">
-                            {adEffectData.summary.totalVisits.toLocaleString()}
+                            {adEffectData.summary.totalViews.toLocaleString()}
                           </div>
                         </div>
                         <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg p-4">
-                          <div className="text-sm text-blue-600 font-medium">총 구매수</div>
+                          <div className="text-sm text-blue-600 font-medium">총 주문수</div>
                           <div className="text-2xl font-bold text-blue-800">
-                            {adEffectData.summary.totalPurchases.toLocaleString()}
+                            {adEffectData.summary.totalOrders.toLocaleString()}
+                          </div>
+                        </div>
+                        <div className="bg-gradient-to-br from-cyan-50 to-cyan-100 rounded-lg p-4">
+                          <div className="text-sm text-cyan-600 font-medium">총 판매수량</div>
+                          <div className="text-2xl font-bold text-cyan-800">
+                            {adEffectData.summary.totalProductsSold.toLocaleString()}
                           </div>
                         </div>
                         <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-lg p-4">
@@ -4012,9 +4017,9 @@ function AdminDashboard() {
                           className="px-3 py-1 border border-gray-300 rounded-md text-sm"
                         >
                           <option value="order_amount">매출</option>
-                          <option value="purchase_count">구매수</option>
-                          <option value="visit_count">방문수</option>
-                          <option value="purchase_rate">전환율</option>
+                          <option value="order_count">주문수</option>
+                          <option value="view_count">조회수</option>
+                          <option value="conversion_rate">전환율</option>
                         </select>
                         <select
                           value={adEffectSortOrder}
@@ -4038,16 +4043,16 @@ function AdminDashboard() {
                           <thead className="bg-gray-50">
                             <tr>
                               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                광고매체
-                              </th>
-                              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                키워드
+                                상품명
                               </th>
                               <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                방문수
+                                조회수
                               </th>
                               <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                구매수
+                                주문수
+                              </th>
+                              <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                판매수량
                               </th>
                               <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                                 매출
@@ -4055,34 +4060,30 @@ function AdminDashboard() {
                               <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                                 전환율
                               </th>
-                              <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                객단가
-                              </th>
                             </tr>
                           </thead>
                           <tbody className="bg-white divide-y divide-gray-200">
                             {adEffectData.data.map((item, index) => (
                               <tr key={index} className="hover:bg-gray-50">
-                                <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900">
-                                  {item.ad || '-'}
-                                </td>
-                                <td className="px-4 py-3 text-sm text-gray-700 max-w-xs truncate" title={item.keyword}>
-                                  {item.keyword || '-'}
+                                <td className="px-4 py-3 text-sm font-medium text-gray-900 max-w-xs">
+                                  <div className="truncate" title={item.product_name}>
+                                    {item.product_name || '-'}
+                                  </div>
                                 </td>
                                 <td className="px-4 py-3 whitespace-nowrap text-sm text-right text-gray-600">
-                                  {item.visit_count?.toLocaleString() || 0}
+                                  {item.view_count?.toLocaleString() || 0}
                                 </td>
                                 <td className="px-4 py-3 whitespace-nowrap text-sm text-right text-blue-600 font-medium">
-                                  {item.purchase_count?.toLocaleString() || 0}
+                                  {item.order_count?.toLocaleString() || 0}
+                                </td>
+                                <td className="px-4 py-3 whitespace-nowrap text-sm text-right text-cyan-600">
+                                  {item.order_product_count?.toLocaleString() || 0}
                                 </td>
                                 <td className="px-4 py-3 whitespace-nowrap text-sm text-right text-green-600 font-medium">
                                   {item.order_amount?.toLocaleString() || 0}원
                                 </td>
-                                <td className="px-4 py-3 whitespace-nowrap text-sm text-right text-purple-600">
-                                  {item.purchase_rate?.toFixed(2) || '0.00'}%
-                                </td>
-                                <td className="px-4 py-3 whitespace-nowrap text-sm text-right text-gray-600">
-                                  {item.order_amount_per_buyer?.toLocaleString() || 0}원
+                                <td className="px-4 py-3 whitespace-nowrap text-sm text-right text-purple-600 font-medium">
+                                  {item.conversion_rate?.toFixed(2) || '0.00'}%
                                 </td>
                               </tr>
                             ))}
@@ -4092,7 +4093,7 @@ function AdminDashboard() {
 
                       {adEffectData.data.length === 0 && (
                         <div className="text-center py-8 text-gray-500">
-                          해당 기간에 광고 효과 데이터가 없습니다.
+                          해당 기간에 제품별 전환율 데이터가 없습니다.
                         </div>
                       )}
                     </>
@@ -4105,7 +4106,7 @@ function AdminDashboard() {
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                       </svg>
                       <p>기간을 선택하고 조회 버튼을 클릭하세요.</p>
-                      <p className="text-xs mt-2 text-gray-400">광고매체별 방문수, 구매수, 매출, 전환율을 확인할 수 있습니다.</p>
+                      <p className="text-xs mt-2 text-gray-400">제품별 조회수, 주문수, 판매수량, 매출, 전환율을 확인할 수 있습니다.</p>
                     </div>
                   )}
                 </>
