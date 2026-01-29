@@ -11,7 +11,7 @@ interface ExecutionResult {
   suggestions?: string[];
 }
 
-type ScriptTab = 'sales' | 'ads' | 'realtime' | 'period-sales' | 'meta-ads';
+type ScriptTab = 'sales' | 'ads' | 'realtime' | 'period-sales' | 'meta-ads' | 'ad-effect';
 
 // Suspense로 감싸는 wrapper 컴포넌트
 export default function AdminDashboardWrapper() {
@@ -31,7 +31,7 @@ function AdminDashboard() {
   const searchParams = useSearchParams();
 
   // URL 파라미터에서 탭 읽기
-  const validTabs: ScriptTab[] = ['sales', 'ads', 'realtime', 'period-sales', 'meta-ads'];
+  const validTabs: ScriptTab[] = ['sales', 'ads', 'realtime', 'period-sales', 'meta-ads', 'ad-effect'];
   const tabParam = searchParams.get('tab') as ScriptTab | null;
   const initialTab = tabParam && validTabs.includes(tabParam) ? tabParam : 'sales';
 
@@ -247,6 +247,36 @@ function AdminDashboard() {
     totalItems: number;
     items: Array<{ url: string; type: 'image' | 'video'; width?: number; height?: number }>;
   } | null>(null);
+
+  // 광고 효과 탭용 state
+  const [adEffectStartDate, setAdEffectStartDate] = useState('');
+  const [adEffectEndDate, setAdEffectEndDate] = useState('');
+  const [adEffectLoading, setAdEffectLoading] = useState(false);
+  const [adEffectError, setAdEffectError] = useState<string | null>(null);
+  const [adEffectData, setAdEffectData] = useState<{
+    success: boolean;
+    startDate: string;
+    endDate: string;
+    data: Array<{
+      ad: string;
+      keyword: string;
+      visit_count: number;
+      visit_rate: number;
+      purchase_count: number;
+      purchase_rate: number;
+      order_amount: number;
+      order_amount_per_visitor: number;
+      order_amount_per_buyer: number;
+    }>;
+    summary: {
+      totalVisits: number;
+      totalPurchases: number;
+      totalRevenue: number;
+      avgConversionRate: number;
+    };
+  } | null>(null);
+  const [adEffectSort, setAdEffectSort] = useState<'visit_count' | 'purchase_count' | 'order_amount' | 'purchase_rate'>('order_amount');
+  const [adEffectSortOrder, setAdEffectSortOrder] = useState<'asc' | 'desc'>('desc');
 
   // Refs (must be at the top level)
   const prevStepsRef = useRef<string>('');
@@ -917,10 +947,10 @@ function AdminDashboard() {
   const canAccessTab = (tab: ScriptTab): boolean => {
     if (!user) return false;
     if (user.role === 'admin') return true;
-    // sales_viewer는 실시간 매출과 기간별 매출 탭 모두 접근 가능
-    if (user.role === 'sales_viewer') return tab === 'realtime' || tab === 'period-sales';
+    // sales_viewer는 실시간 매출, 기간별 매출, 광고 효과 탭 접근 가능
+    if (user.role === 'sales_viewer') return tab === 'realtime' || tab === 'period-sales' || tab === 'ad-effect';
     // user 권한은 스크래핑 + meta-ads
-    return tab !== 'realtime' && tab !== 'period-sales';
+    return tab !== 'realtime' && tab !== 'period-sales' && tab !== 'ad-effect';
   };
 
   // Meta Ads 검색 함수 (GitHub Actions 트리거 + 폴링)
@@ -1003,6 +1033,95 @@ function AdminDashboard() {
       console.error('Meta Ads fetch error:', error);
       setMetaAdsError('광고 검색 중 오류가 발생했습니다.');
       setMetaAdsLoading(false);
+    }
+  };
+
+  // 광고 효과 데이터 조회 함수
+  const fetchAdEffect = async () => {
+    if (!adEffectStartDate || !adEffectEndDate) {
+      setAdEffectError('시작일과 종료일을 선택해주세요.');
+      return;
+    }
+
+    setAdEffectLoading(true);
+    setAdEffectError(null);
+
+    try {
+      const params = new URLSearchParams({
+        startDate: adEffectStartDate,
+        endDate: adEffectEndDate,
+        sort: adEffectSort,
+        order: adEffectSortOrder,
+      });
+
+      const response = await fetch(`/api/cafe24/adeffect?${params}`);
+      const data = await response.json();
+
+      if (data.success) {
+        setAdEffectData(data);
+      } else if (data.needsAuth) {
+        setAdEffectError('Cafe24 인증이 필요합니다. 실시간 매출 탭에서 인증을 진행해주세요.');
+      } else {
+        setAdEffectError(data.error || '데이터를 불러오는데 실패했습니다.');
+      }
+    } catch (error) {
+      console.error('Ad Effect fetch error:', error);
+      setAdEffectError('광고 효과 데이터를 불러오는 중 오류가 발생했습니다.');
+    } finally {
+      setAdEffectLoading(false);
+    }
+  };
+
+  // 광고 효과 빠른 날짜 선택 함수
+  const setAdEffectQuickDate = (period: 'today' | 'yesterday' | 'thisWeek' | 'lastWeek' | 'thisMonth' | 'lastMonth') => {
+    const now = new Date();
+    const kstOffset = 9 * 60 * 60 * 1000;
+    const kstNow = new Date(now.getTime() + kstOffset);
+
+    const formatDate = (date: Date) => date.toISOString().split('T')[0];
+
+    switch (period) {
+      case 'today': {
+        const today = formatDate(kstNow);
+        setAdEffectStartDate(today);
+        setAdEffectEndDate(today);
+        break;
+      }
+      case 'yesterday': {
+        const yesterday = new Date(kstNow.getTime() - 24 * 60 * 60 * 1000);
+        const date = formatDate(yesterday);
+        setAdEffectStartDate(date);
+        setAdEffectEndDate(date);
+        break;
+      }
+      case 'thisWeek': {
+        const dayOfWeek = kstNow.getUTCDay();
+        const monday = new Date(kstNow.getTime() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1) * 24 * 60 * 60 * 1000);
+        setAdEffectStartDate(formatDate(monday));
+        setAdEffectEndDate(formatDate(kstNow));
+        break;
+      }
+      case 'lastWeek': {
+        const dayOfWeek = kstNow.getUTCDay();
+        const lastMonday = new Date(kstNow.getTime() - (dayOfWeek === 0 ? 13 : dayOfWeek + 6) * 24 * 60 * 60 * 1000);
+        const lastSunday = new Date(lastMonday.getTime() + 6 * 24 * 60 * 60 * 1000);
+        setAdEffectStartDate(formatDate(lastMonday));
+        setAdEffectEndDate(formatDate(lastSunday));
+        break;
+      }
+      case 'thisMonth': {
+        const firstDay = new Date(Date.UTC(kstNow.getUTCFullYear(), kstNow.getUTCMonth(), 1));
+        setAdEffectStartDate(formatDate(firstDay));
+        setAdEffectEndDate(formatDate(kstNow));
+        break;
+      }
+      case 'lastMonth': {
+        const firstDay = new Date(Date.UTC(kstNow.getUTCFullYear(), kstNow.getUTCMonth() - 1, 1));
+        const lastDay = new Date(Date.UTC(kstNow.getUTCFullYear(), kstNow.getUTCMonth(), 0));
+        setAdEffectStartDate(formatDate(firstDay));
+        setAdEffectEndDate(formatDate(lastDay));
+        break;
+      }
     }
   };
 
@@ -1725,6 +1844,18 @@ function AdminDashboard() {
                   }`}
                 >
                   Meta 광고 검색
+                </button>
+              )}
+              {canAccessTab('ad-effect') && (
+                <button
+                  onClick={() => handleTabChange('ad-effect')}
+                  className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                    activeTab === 'ad-effect'
+                      ? 'border-teal-500 text-teal-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  }`}
+                >
+                  광고 효과 분석
                 </button>
               )}
             </nav>
@@ -3745,6 +3876,236 @@ function AdminDashboard() {
                       </svg>
                       <p>검색어를 입력하고 검색 버튼을 클릭하세요.</p>
                       <p className="text-xs mt-2 text-gray-400">예: 브랜드명, 제품명, 카테고리 등</p>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {/* 광고 효과 분석 탭 */}
+              {activeTab === 'ad-effect' && (
+                <>
+                  <h2 className="text-lg font-medium text-gray-900 mb-4">광고 효과 분석 (바르너)</h2>
+
+                  {/* 날짜 선택 */}
+                  <div className="mb-6">
+                    <div className="flex flex-wrap items-end gap-4 mb-3">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">시작일</label>
+                        <input
+                          type="date"
+                          value={adEffectStartDate}
+                          onChange={(e) => setAdEffectStartDate(e.target.value)}
+                          className="px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-teal-500 focus:border-teal-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">종료일</label>
+                        <input
+                          type="date"
+                          value={adEffectEndDate}
+                          onChange={(e) => setAdEffectEndDate(e.target.value)}
+                          className="px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-teal-500 focus:border-teal-500"
+                        />
+                      </div>
+                      <button
+                        onClick={fetchAdEffect}
+                        disabled={adEffectLoading || !adEffectStartDate || !adEffectEndDate}
+                        className="px-4 py-2 bg-teal-600 text-white rounded-md hover:bg-teal-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                      >
+                        {adEffectLoading ? '조회 중...' : '조회'}
+                      </button>
+                    </div>
+
+                    {/* 빠른 선택 버튼 */}
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        onClick={() => setAdEffectQuickDate('today')}
+                        className="px-3 py-1 text-sm bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200"
+                      >
+                        오늘
+                      </button>
+                      <button
+                        onClick={() => setAdEffectQuickDate('yesterday')}
+                        className="px-3 py-1 text-sm bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200"
+                      >
+                        어제
+                      </button>
+                      <button
+                        onClick={() => setAdEffectQuickDate('thisWeek')}
+                        className="px-3 py-1 text-sm bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200"
+                      >
+                        이번 주
+                      </button>
+                      <button
+                        onClick={() => setAdEffectQuickDate('lastWeek')}
+                        className="px-3 py-1 text-sm bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200"
+                      >
+                        지난 주
+                      </button>
+                      <button
+                        onClick={() => setAdEffectQuickDate('thisMonth')}
+                        className="px-3 py-1 text-sm bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200"
+                      >
+                        이번 달
+                      </button>
+                      <button
+                        onClick={() => setAdEffectQuickDate('lastMonth')}
+                        className="px-3 py-1 text-sm bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200"
+                      >
+                        지난 달
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* 에러 메시지 */}
+                  {adEffectError && (
+                    <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-md">
+                      <p className="text-red-700">{adEffectError}</p>
+                    </div>
+                  )}
+
+                  {/* 로딩 */}
+                  {adEffectLoading && (
+                    <div className="flex justify-center items-center py-12">
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-teal-600"></div>
+                      <span className="ml-3 text-gray-600">데이터를 불러오는 중...</span>
+                    </div>
+                  )}
+
+                  {/* 데이터 표시 */}
+                  {adEffectData && !adEffectLoading && (
+                    <>
+                      {/* 요약 카드 */}
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                        <div className="bg-gradient-to-br from-teal-50 to-teal-100 rounded-lg p-4">
+                          <div className="text-sm text-teal-600 font-medium">총 방문수</div>
+                          <div className="text-2xl font-bold text-teal-800">
+                            {adEffectData.summary.totalVisits.toLocaleString()}
+                          </div>
+                        </div>
+                        <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg p-4">
+                          <div className="text-sm text-blue-600 font-medium">총 구매수</div>
+                          <div className="text-2xl font-bold text-blue-800">
+                            {adEffectData.summary.totalPurchases.toLocaleString()}
+                          </div>
+                        </div>
+                        <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-lg p-4">
+                          <div className="text-sm text-green-600 font-medium">총 매출</div>
+                          <div className="text-2xl font-bold text-green-800">
+                            {adEffectData.summary.totalRevenue.toLocaleString()}원
+                          </div>
+                        </div>
+                        <div className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-lg p-4">
+                          <div className="text-sm text-purple-600 font-medium">평균 전환율</div>
+                          <div className="text-2xl font-bold text-purple-800">
+                            {adEffectData.summary.avgConversionRate.toFixed(2)}%
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* 정렬 옵션 */}
+                      <div className="flex items-center gap-4 mb-4">
+                        <span className="text-sm text-gray-600">정렬:</span>
+                        <select
+                          value={adEffectSort}
+                          onChange={(e) => setAdEffectSort(e.target.value as typeof adEffectSort)}
+                          className="px-3 py-1 border border-gray-300 rounded-md text-sm"
+                        >
+                          <option value="order_amount">매출</option>
+                          <option value="purchase_count">구매수</option>
+                          <option value="visit_count">방문수</option>
+                          <option value="purchase_rate">전환율</option>
+                        </select>
+                        <select
+                          value={adEffectSortOrder}
+                          onChange={(e) => setAdEffectSortOrder(e.target.value as 'asc' | 'desc')}
+                          className="px-3 py-1 border border-gray-300 rounded-md text-sm"
+                        >
+                          <option value="desc">내림차순</option>
+                          <option value="asc">오름차순</option>
+                        </select>
+                        <button
+                          onClick={fetchAdEffect}
+                          className="px-3 py-1 text-sm bg-teal-100 text-teal-700 rounded-md hover:bg-teal-200"
+                        >
+                          적용
+                        </button>
+                      </div>
+
+                      {/* 데이터 테이블 */}
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full divide-y divide-gray-200">
+                          <thead className="bg-gray-50">
+                            <tr>
+                              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                광고매체
+                              </th>
+                              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                키워드
+                              </th>
+                              <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                방문수
+                              </th>
+                              <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                구매수
+                              </th>
+                              <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                매출
+                              </th>
+                              <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                전환율
+                              </th>
+                              <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                객단가
+                              </th>
+                            </tr>
+                          </thead>
+                          <tbody className="bg-white divide-y divide-gray-200">
+                            {adEffectData.data.map((item, index) => (
+                              <tr key={index} className="hover:bg-gray-50">
+                                <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900">
+                                  {item.ad || '-'}
+                                </td>
+                                <td className="px-4 py-3 text-sm text-gray-700 max-w-xs truncate" title={item.keyword}>
+                                  {item.keyword || '-'}
+                                </td>
+                                <td className="px-4 py-3 whitespace-nowrap text-sm text-right text-gray-600">
+                                  {item.visit_count?.toLocaleString() || 0}
+                                </td>
+                                <td className="px-4 py-3 whitespace-nowrap text-sm text-right text-blue-600 font-medium">
+                                  {item.purchase_count?.toLocaleString() || 0}
+                                </td>
+                                <td className="px-4 py-3 whitespace-nowrap text-sm text-right text-green-600 font-medium">
+                                  {item.order_amount?.toLocaleString() || 0}원
+                                </td>
+                                <td className="px-4 py-3 whitespace-nowrap text-sm text-right text-purple-600">
+                                  {item.purchase_rate?.toFixed(2) || '0.00'}%
+                                </td>
+                                <td className="px-4 py-3 whitespace-nowrap text-sm text-right text-gray-600">
+                                  {item.order_amount_per_buyer?.toLocaleString() || 0}원
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {adEffectData.data.length === 0 && (
+                        <div className="text-center py-8 text-gray-500">
+                          해당 기간에 광고 효과 데이터가 없습니다.
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  {/* 조회 전 안내 */}
+                  {!adEffectData && !adEffectLoading && !adEffectError && (
+                    <div className="text-center py-12 text-gray-500">
+                      <svg className="mx-auto h-12 w-12 text-gray-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                      </svg>
+                      <p>기간을 선택하고 조회 버튼을 클릭하세요.</p>
+                      <p className="text-xs mt-2 text-gray-400">광고매체별 방문수, 구매수, 매출, 전환율을 확인할 수 있습니다.</p>
                     </div>
                   )}
                 </>
