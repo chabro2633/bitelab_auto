@@ -291,16 +291,35 @@ export async function GET(request: NextRequest) {
   const endDate = searchParams.get('endDate') || startDate;
   const sortBy = searchParams.get('sort') as 'view_count' | 'order_count' | 'order_amount' | 'conversion_rate' | null;
   const order = searchParams.get('order') as 'asc' | 'desc' | null;
+  const debug = searchParams.get('debug') === 'true';
 
   try {
     // Access Token 가져오기
     const { token, newTokenData } = await getAccessToken();
+    console.log('[ProductConversion] Got access token, length:', token?.length || 0);
 
     // Products View와 Products Sales 데이터 병렬 조회
     const [viewData, salesData] = await Promise.all([
       fetchProductsView(token, startDate, endDate),
       fetchProductsSales(token, startDate, endDate),
     ]);
+
+    console.log('[ProductConversion] View data count:', viewData.length);
+    console.log('[ProductConversion] Sales data count:', salesData.length);
+
+    // 디버그 모드면 raw 데이터 반환
+    if (debug) {
+      return NextResponse.json({
+        debug: true,
+        startDate,
+        endDate,
+        tokenLength: token?.length || 0,
+        viewData: viewData.slice(0, 5), // 처음 5개만
+        salesData: salesData.slice(0, 5), // 처음 5개만
+        viewDataCount: viewData.length,
+        salesDataCount: salesData.length,
+      });
+    }
 
     // 조회수 맵 생성 (product_no -> view_count)
     const viewMap = new Map<number, ProductViewItem>();
