@@ -87,7 +87,7 @@ jobs:
         EMAIL: ${{ secrets.CIGRO_EMAIL }}
         PASSWORD: ${{ secrets.CIGRO_PASSWORD }}
         GOOGLE_SHEET_NAME: ${{ secrets.GOOGLE_SHEET_NAME }}
-        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        # SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}  # Slack 알림 비활성화
       run: |
         echo "광고 소재 데이터 스크래핑 시작"
         python cigro_ads_ad.py

@@ -87,7 +87,7 @@ jobs:
         EMAIL: ${{ secrets.CIGRO_EMAIL }}
         PASSWORD: ${{ secrets.CIGRO_PASSWORD }}
         GOOGLE_SHEET_NAME: ${{ secrets.GOOGLE_SHEET_NAME }}
-        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        # SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}  # Slack 알림 비활성화
       run: |
         # 안전한 명령어 실행 (eval 사용 안함)
         ARGS=""
